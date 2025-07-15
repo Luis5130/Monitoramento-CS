@@ -20,7 +20,7 @@ def carregar_dados():
 
     return df
 
-df_original = carregar_dados() # Renomeado para evitar confusão
+df_original = carregar_dados()
 
 st.title("📊 Análise de Performance: Comparativo Semana do Mês (MoM)")
 
@@ -32,16 +32,16 @@ max_date_available = df_original.index.max().date()
 
 data_inicio_grafico = st.sidebar.date_input(
     "Data de Início do Gráfico",
-    value=min_date_available, # Valor inicial
+    value=min_date_available,
     min_value=min_date_available,
     max_value=max_date_available,
     key="graph_start_date"
 )
 data_fim_grafico = st.sidebar.date_input(
     "Data de Fim do Gráfico",
-    value=max_date_available, # Valor inicial
+    value=max_date_available,
     min_value=min_date_available,
-    max_value=max_date_available,
+    max_value=max_date_available, # CORRIGIDO: Adicionado max_value= aqui
     key="graph_end_date"
 )
 
@@ -55,11 +55,11 @@ df_filtrado = df_original.loc[pd.to_datetime(data_inicio_grafico):pd.to_datetime
 
 if df_filtrado.empty:
     st.warning("Nenhum dado encontrado para o período selecionado no gráfico principal. Por favor, ajuste as datas.")
-    st.stop() # Interrompe a execução se não houver dados
+    st.stop()
 
 
 # --- Preparar dados para comparação de "Semana do Mês" ---
-df_comparacao_semana_mes = df_filtrado.copy() # Usar o df filtrado aqui
+df_comparacao_semana_mes = df_filtrado.copy()
 
 # Adicionar colunas para Mês, Ano e Semana do Mês
 df_comparacao_semana_mes['Ano'] = df_comparacao_semana_mes.index.year
@@ -68,7 +68,7 @@ df_comparacao_semana_mes['Semana_do_Mes_Num'] = ((df_comparacao_semana_mes.index
 
 # --- Agrupar por Semana do Mês e Mês/Ano para os totais ---
 df_grouped = df_comparacao_semana_mes.groupby(['Ano', 'Mes', 'Semana_do_Mes_Num']).agg(
-    {col: 'sum' for col in df_original.columns} # Soma as métricas para a semana específica
+    {col: 'sum' for col in df_original.columns}
 ).reset_index()
 
 # Ordenar para garantir que o cálculo do mês anterior funcione corretamente
@@ -109,7 +109,6 @@ df_plot['MoM_Semana_Pct'] = ((df_plot[metrica_principal] - df_plot['Mes_Anterior
 df_plot['MoM_Semana_Pct'] = df_plot['MoM_Semana_Pct'].replace([np.inf, -np.inf], np.nan).fillna(0)
 
 # Remover linhas onde não há comparação (primeiros meses/semanas)
-# Isso evita que o gráfico mostre a primeira semana de um mês sem dado anterior, a menos que seja 0.
 df_plot_final = df_plot[
     (df_plot[metrica_principal].notna()) |
     (df_plot['Mes_Anterior_Valor'].notna()) |
@@ -224,13 +223,12 @@ st.markdown("---")
 # --- SEÇÃO DE VISUALIZAÇÃO DE DADOS BRUTOS (OPCIONAL) ---
 st.header("Visualização de Dados Semanais Brutos por Período Selecionado")
 
-# Usar as datas min/max do DF original para os filtros de dados brutos
 min_date_raw_vis = df_original.index.min().date()
 max_date_raw_vis = df_original.index.max().date()
 
 st.sidebar.subheader("Ver Dados Semanais Detalhados")
 data_inicio_vis = st.sidebar.date_input("Data de Início", value=min_date_raw_vis, min_value=min_date_raw_vis, max_value=max_date_raw_vis, key="vis_start")
-data_fim_vis = st.sidebar.date_input("Data de Fim", value=max_date_raw_vis, min_value=min_date_raw_vis, max_date_raw_vis, key="vis_end")
+data_fim_vis = st.sidebar.date_input("Data de Fim", value=max_date_raw_vis, min_value=min_date_raw_vis, max_value=max_date_raw_vis, key="vis_end") # CORRIGIDO AQUI TAMBÉM
 
 if data_inicio_vis > data_fim_vis:
     st.sidebar.error("Erro: A data de início não pode ser posterior à data de fim.")
