@@ -78,20 +78,21 @@ df_grouped_by_week_in_month = df_comparacao_semana_mes.groupby(['Ano', 'Mes', 'S
 # Ordenar para garantir a consistência
 df_grouped_by_week_in_month = df_grouped_by_week_in_month.sort_values(by=['Ano', 'Mes', 'Semana_do_Mes_Num'])
 
+# --- Seleção da Métrica Principal ---
+# MOVER ESTA SEÇÃO PARA ANTES DOS CÁLCULOS DE MOM
+metricas_disponiveis = [col for col in df_grouped_by_week_in_month.columns if col not in ['Ano', 'Mes', 'Semana_do_Mes_Num', 'Label_Mes', 'Mes_Ano']]
+metrica_principal = st.sidebar.selectbox(
+    "Selecione a Métrica para o Gráfico de Tendência",
+    metricas_disponiveis,
+    index=0 # Assume que a primeira métrica é um bom padrão
+)
+
 # --- Calcular MoM (Month-over-Month) para o gráfico ---
-# Mês Anterior é o mesmo índice de Semana_do_Mes_Num no mês anterior
+# AGORA O CÁLCULO VAI AQUI, DEPOIS QUE METRICA_PRINCIPAL FOI DEFINIDA
 df_grouped_by_week_in_month['Realizado_Mes_Anterior'] = df_grouped_by_week_in_month.groupby(['Semana_do_Mes_Num'])[metrica_principal].shift(1)
 df_grouped_by_week_in_month['MoM (%)'] = ((df_grouped_by_week_in_month[metrica_principal] - df_grouped_by_week_in_month['Realizado_Mes_Anterior']) / df_grouped_by_week_in_month['Realizado_Mes_Anterior']) * 100
 df_grouped_by_week_in_month['MoM (%)'] = df_grouped_by_week_in_month['MoM (%)'].replace([np.inf, -np.inf], np.nan)
 
-
-# --- Seleção da Métrica Principal ---
-metricas_disponiveis = [col for col in df_grouped_by_week_in_month.columns if col not in ['Ano', 'Mes', 'Semana_do_Mes_Num', 'Label_Mes', 'Mes_Ano', 'Realizado_Mes_Anterior', 'MoM (%)']]
-metrica_principal = st.sidebar.selectbox(
-    "Selecione a Métrica para o Gráfico de Tendência",
-    metricas_disponiveis,
-    index=0
-)
 
 # --- Criar o DataFrame para o Gráfico Principal (apenas "Realizado") ---
 df_chart_data = df_grouped_by_week_in_month.copy()
@@ -153,7 +154,7 @@ else:
                 yshift=10,
                 font=dict(color='blue', size=10)
             )
-        if pd.notna(row['Realizado_Mes_Anterior']):
+        if 'Realizado_Mes_Anterior' in row and pd.notna(row['Realizado_Mes_Anterior']):
             fig_main.add_annotation(
                 x=row['Full_Label_X'],
                 y=row['Realizado_Mes_Anterior'],
@@ -162,7 +163,7 @@ else:
                 yshift=10,
                 font=dict(color='purple', size=10)
             )
-        if pd.notna(row['MoM (%)']):
+        if 'MoM (%)' in row and pd.notna(row['MoM (%)']):
             fig_main.add_annotation(
                 x=row['Full_Label_X'],
                 y=row['MoM (%)'],
@@ -202,7 +203,6 @@ else:
             ticktext=df_chart_data['Label_Eixo_X_Simples'].tolist(), # Exibir apenas "Semana X"
             showgrid=True, # Mostrar grid vertical para as semanas
             gridcolor='lightgrey',
-            # Isso é para evitar que os ticks se sobreponham, mas os labels dos meses estarão nas linhas
             automargin=True,
             tickangle=-45
         ),
@@ -257,19 +257,23 @@ else:
         # Adicionar a linha de separação
         sep_row = {'Mês e Ano': f'--- Semana {semana_num} ---'}
         # Preencher colunas que estarão presentes no DataFrame final com NaN ou strings vazias
-        for col_prefix in ['Valor', 'vs.']: # Prefixo das colunas que podem ser dinâmicas
-            for col_suffix in [' (Contagem)', ' (Val Abs)', ' (%)']: # Sufixos comuns
-                col_name_guess = f"{col_prefix} ({metrica_principal}){col_suffix}"
-                if col_name_guess in df_semana_especifica.columns or any(c.startswith(col_prefix) and c.endswith(col_suffix) for c in df_semana_especifica.columns):
-                    sep_row[col_name_guess] = '' # Preencher com string vazia
-        # Adicionar colunas de comparação específicas
-        meses_e_anos_para_cols = df_semana_especifica['Mes_Ano'].tolist()
-        for i in range(len(meses_e_anos_para_cols)):
-            for j in range(i + 1, len(meses_e_anos_para_cols)):
-                m1_label = meses_e_anos_para_cols[i]
-                m2_label = meses_e_anos_para_cols[j]
-                sep_row[f'vs. {m1_label} (Val Abs)'] = ''
-                sep_row[f'vs. {m1_label} (%)'] = ''
+        # A forma mais robusta é construir o DataFrame e depois pegar as colunas.
+        # Por enquanto, tentaremos preencher dinamicamente.
+        
+        # Obter a lista de meses/anos que aparecerão nesta seção da semana
+        meses_e_anos_presentes = df_semana_especifica['Mes_Ano'].unique()
+
+        # Adicionar as colunas de comparação esperadas para esta semana
+        # Para cada mês presente, exceto o primeiro, adicione as colunas de comparação com os meses anteriores
+        for i in range(len(meses_e_anos_presentes)):
+            current_month_label = meses_e_anos_presentes[i]
+            # Adicionar a coluna de valor para o mês atual
+            sep_row[f'Valor ({metrica_principal})'] = '' 
+            
+            for j in range(i): # Comparar com todos os meses anteriores
+                prev_month_label = meses_e_anos_presentes[j]
+                sep_row[f'vs. {prev_month_label} (Val Abs)'] = ''
+                sep_row[f'vs. {prev_month_label} (%)'] = ''
         
         tabela_dados.append(sep_row)
         
