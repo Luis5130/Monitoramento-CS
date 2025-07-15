@@ -86,17 +86,8 @@ metrica_principal = st.sidebar.selectbox(
     index=0
 )
 
-# --- NÃO VAMOS MAIS CALCULAR MoM DESSA FORMA DIRETA NO DATAFRAME PRINCIPAL PARA O GRÁFICO ---
-# df_grouped_by_week_in_month['Realizado_Mes_Anterior'] = df_grouped_by_week_in_month.groupby(['Semana_do_Mes_Num'])[metrica_principal].shift(1)
-# df_grouped_by_week_in_month['MoM (%)'] = ((df_grouped_by_week_in_month[metrica_principal] - df_grouped_by_week_in_month['Realizado_Mes_Anterior']) / df_grouped_by_week_in_month['Realizado_Mes_Anterior']) * 100
-# df_grouped_by_week_in_month['MoM (%)'] = df_grouped_by_week_in_month['MoM (%)'].replace([np.inf, -np.inf], np.nan)
-
-
 # --- Criar o DataFrame para o Gráfico Principal ---
 df_chart_data = df_grouped_by_week_in_month.copy()
-
-# O Chart_X_Position não será necessário se usarmos Semana_do_Mes_Num diretamente no X
-# df_chart_data['Chart_X_Position'] = range(len(df_chart_data))
 
 # Criar um rótulo completo para o hover (Mês e Ano S Semana X)
 df_chart_data['Full_Label_X_Hover'] = df_chart_data['Mes_Ano'] + ' S' + df_chart_data['Semana_do_Mes_Num'].astype(str)
@@ -107,7 +98,7 @@ st.header(f"Evolução de {metrica_principal} (Contagem) por Semana do Mês")
 
 if df_chart_data.empty:
     st.warning("Nenhum dado encontrado para o período selecionado para exibir o gráfico.")
-else:
+else: # <-- Este é o 'else' que estava faltando
     fig_main = go.Figure()
 
     # Obter os meses únicos no período filtrado
@@ -149,64 +140,8 @@ else:
                         font=dict(color=current_color, size=10)
                     ))
     
-    # --- Rótulos de Mês (acima do gráfico) ---
-    # Estes são os rótulos que você quer ver acima de cada "bloco" de semanas
-    # Vamos criar estes como anotações separadas para posicionamento manual
-    
-    # Encontrar as posições de início e fim para cada mês
-    month_x_positions = []
-    
-    # Precisamos mapear a Semana_do_Mes_Num para a largura total das semanas
-    # A maior semana_do_mes_num determinará a largura do eixo X
-    max_week_num = df_chart_data['Semana_do_Mes_Num'].max()
-    
-    for i, mes_ano in enumerate(meses_para_plotar):
-        month_data = df_chart_data[df_chart_data['Mes_Ano'] == mes_ano]
-        if not month_data.empty:
-            # Calcular a posição do centro do mês no eixo X "virtual"
-            # O Plotly usa valores numéricos para o eixo X
-            # Podemos dar um offset para cada mês para que eles fiquem lado a lado
-            # Cada mês terá as semanas 1, 2, 3, 4 (e 5 se houver)
-            # Para o mês 'i', as semanas estarão em (1 + i*max_week_num_plus_gap) a (max_week_num + i*max_week_num_plus_gap)
-            
-            # Vamos simplificar: o eixo X real será 'Semana_do_Mes_Num'.
-            # As linhas verticais e rótulos de mês serão feitos manualmente.
-
-            # Agora, para a anotação, queremos que ela apareça uma única vez acima do bloco de semanas
-            # correspondente a este mês. Isso é um desafio com um eixo X fixo de "Semana 1, Semana 2".
-            # A melhor abordagem é ter um eixo X dinâmico que combine Mês e Semana, como você tinha antes,
-            # ou usar `xaxis=dict(type='category')` com os rótulos `Mes_Ano + ' S' + Semana_do_Mes_Num`.
-            # Mas, como você quer *fixo* Semana 1, 2, 3, 4, precisamos de uma forma diferente.
-
-            # Opção 1 (mais próxima do que você quer): Fazer um facet wrap manual,
-            # ou usar subplots, mas isso complica a interatividade.
-
-            # Opção 2 (mais simples e viável com um único gráfico):
-            # Manter o eixo X como Mês e Semana, mas formatar para *parecer* fixo.
-            # No entanto, você explicitamente pediu "Semana 1, Semana 2, Semana 3, Semana 4"
-            # sem repetição do nome do mês.
-
-            # Se o eixo X *sempre* for de 1 a 4 (ou 5), e cada linha representa um mês,
-            # o que você está pedindo é um "comparativo de linhas por semana do mês".
-
-            # Vamos reinterpretar o pedido:
-            # - Uma linha para cada mês (Ex: linha azul para Jun 2025, linha vermelha para Jul 2025).
-            # - No eixo X, os ticks são FIXOS: Semana 1, Semana 2, Semana 3, Semana 4 (e 5 se necessário).
-            # - As anotações de Mês/Ano aparecem acima das semanas que representam.
-
-            # Para isso, o eixo X *deve* ser Semana_do_Mes_Num.
-            # O desafio é posicionar as anotações de Mês/Ano e as linhas divisórias.
-
-            # As anotações de mês devem ser desenhadas uma vez para cada mês.
-            # As linhas de mês não se encaixam no layout de "eixo fixo de semanas".
-            # Se o eixo X é "Semana 1, Semana 2...", ele é o mesmo para todos os meses.
-            # Portanto, não haveria "linhas divisórias" de mês no eixo X.
-            # Em vez disso, as diferentes linhas de cores representariam os meses.
-
-            # Vamos remover as linhas verticais do gráfico e focar nas linhas de meses separadas.
-            # E as anotações de mês serão parte da legenda ou título, não sobre o eixo X.
-
     # Configuração do Layout do Gráfico
+    # Este bloco deve estar na mesma indentação do `fig_main = go.Figure()`
     fig_main.update_layout(
         title=f"Evolução de {metrica_principal} por Semana do Mês (Comparativo Mensal)",
         xaxis=dict(
@@ -226,16 +161,6 @@ else:
             showgrid=True,
             gridcolor='lightgrey'
         ),
-        # Se você ainda quiser MoM (%), ele precisaria ser calculado por semana do mês
-        # E plotado como uma linha separada, talvez para cada mês também, ou como um gráfico à parte.
-        # Por enquanto, removi o eixo Y2 para simplificar, já que a requisição é sobre linhas de meses.
-        # yaxis2=dict(
-        #     title="MoM (%)",
-        #     overlaying='y',
-        #     side='right',
-        #     tickformat=",.2f",
-        #     showgrid=False
-        # ),
         legend=dict(
             orientation="h",
             yanchor="bottom",
