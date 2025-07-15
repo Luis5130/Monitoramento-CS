@@ -146,9 +146,6 @@ if not semanas_do_mes_unicas:
     st.info("Não há semanas do mês para comparar no período selecionado.")
 else:
     tabela_dados = []
-    # Coletar os índices das linhas que são separadores para o subset
-    separador_indices = []
-    current_index = 0
 
     for semana_num in semanas_do_mes_unicas:
         df_semana_especifica = df_grouped_by_week_in_month[
@@ -162,9 +159,18 @@ else:
 
         # Adicionar a linha de separação
         sep_row = {'Mês e Ano': f'--- Semana {semana_num} ---'}
+        # Preencher colunas que estarão presentes no DataFrame final com NaN ou strings vazias
+        # para evitar problemas de tipo quando o DataFrame é criado
+        for col_name in ['Valor', 'Val Abs', '%']: # Tipos de colunas que serão criadas dinamicamente
+            # Usar o nome completo da coluna se já souber ou uma string vazia
+            sep_row[f'Valor ({metrica_principal})'] = ''
+            # Adicione outras colunas dinâmicas que podem aparecer
+            for m_idx, m_row in df_semana_especifica.iterrows():
+                 if f"{m_row['Label_Mes']} {m_row['Ano']}" != f"{df_semana_especifica.iloc[-1]['Label_Mes']} {df_semana_especifica.iloc[-1]['Ano']}": # Não adicionar para o último mês
+                    sep_row[f'vs. {m_row["Label_Mes"]} {m_row["Ano"]} (Val Abs)'] = ''
+                    sep_row[f'vs. {m_row["Label_Mes"]} {m_row["Ano"]} (%)'] = ''
+
         tabela_dados.append(sep_row)
-        separador_indices.append(current_index)
-        current_index += 1
         
         referencias_valores = {} 
 
@@ -194,17 +200,17 @@ else:
                     linha_tabela_item[col_name_percent] = "N/A"
                 
             tabela_dados.append(linha_tabela_item)
-            current_index += 1
         
     if tabela_dados:
-        # Primeiro, crie o DataFrame para que todas as colunas existam antes de preencher
+        # Obter todas as colunas possíveis dinamicamente
         all_cols_in_tables = set()
         for row_dict in tabela_dados:
             all_cols_in_tables.update(row_dict.keys())
         
         colunas_ordenadas = ['Mês e Ano', f'Valor ({metrica_principal})']
         comp_cols = [col for col in list(all_cols_in_tables) if 'vs.' in col]
-        comp_cols.sort(key=lambda x: (int(x.split(' ')[2]), pd.to_datetime(x.split(' ')[1], format='%b').month, x.split('(')[0])) # Mais robusto para ordenar 'vs. Jul 2024 (%)'
+        # Ordenar as colunas de comparação de forma mais robusta: Ano, depois Mês, depois tipo (Abs/%)
+        comp_cols.sort(key=lambda x: (int(x.split(' ')[2]), pd.to_datetime(x.split(' ')[1], format='%b').month, 'Val Abs' if 'Val Abs' in x else '%'))
         colunas_ordenadas.extend(comp_cols)
         
         df_final_tabela = pd.DataFrame(tabela_dados, columns=colunas_ordenadas)
@@ -216,12 +222,15 @@ else:
 
         format_dict_combined = {**format_dict_values, **format_dict_abs, **format_dict_percent}
 
-        # Criar o índice booleano para o subset de forma explícita
-        # O subset deve ser um array booleano com o mesmo tamanho do índice do DataFrame
+        # Cria a máscara para as linhas que *não* são separadores
         rows_to_format_mask = ~df_final_tabela['Mês e Ano'].astype(str).str.startswith('---')
         
+        # Coleta as colunas numéricas/percentuais que precisam de formatação
+        cols_to_format = [col for col in df_final_tabela.columns if col != 'Mês e Ano' and col in format_dict_combined]
+
+        # Usa pd.IndexSlice para selecionar tanto as linhas quanto as colunas
         st.dataframe(df_final_tabela.style.format(format_dict_combined,
-            subset=rows_to_format_mask # Passando a máscara booleana diretamente
+            subset=pd.IndexSlice[rows_to_format_mask, cols_to_format] # Passando IndexSlice
         ))
     else:
         st.info("Não há dados suficientes para gerar a tabela de comparativos para a Semana do Mês no período selecionado.")
