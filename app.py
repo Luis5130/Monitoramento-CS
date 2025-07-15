@@ -106,19 +106,19 @@ df_chart_data['Full_Label_X_Hover'] = df_chart_data['Mes_Ano'] + ' S' + df_chart
 st.header(f"Evolução de {metrica_principal} (Contagem) por Semana do Mês")
 
 if df_chart_data.empty:
-    st.warning("Não há dados suficientes para exibir o gráfico com os filtros selecionados.")
+    st.warning("Nenhum dado encontrado para o período selecionado para exibir o gráfico.")
 else:
     fig_main = go.Figure()
 
     # Linha "Realizado" (Semana Atual do Mês)
     fig_main.add_trace(go.Scatter(
-        x=df_chart_data['Chart_X_Position'], # Usar a posição numérica para o eixo X
+        x=df_chart_data['Chart_X_Position'],
         y=df_chart_data[metrica_principal],
         mode='lines+markers',
         name='Realizado (Semana Atual do Mês)',
         line=dict(color='blue', width=2),
-        hovertemplate="<b>%{customdata[0]}</b><br>Realizado: %{y:,.0f}<extra></extra>", # Usar customdata para o hover
-        customdata=df_chart_data[['Full_Label_X_Hover']] # Passar Full_Label_X_Hover para customdata
+        hovertemplate="<b>%{customdata[0]}</b><br>Realizado: %{y:,.0f}<extra></extra>",
+        customdata=df_chart_data[['Full_Label_X_Hover']]
     ))
 
     # Linha "Mês Anterior"
@@ -140,7 +140,7 @@ else:
             y=df_chart_data['MoM (%)'],
             mode='lines+markers',
             name='MoM (%) (Semana do Mês)',
-            yaxis='y2', # Atribui ao segundo eixo Y
+            yaxis='y2',
             line=dict(color='orange', dash='dot', width=2),
             hovertemplate="<b>%{customdata[0]}</b><br>MoM: %{y:,.2f}%<extra></extra>",
             customdata=df_chart_data[['Full_Label_X_Hover']]
@@ -180,7 +180,6 @@ else:
     month_lines = []
     month_annotations = []
     
-    # Encontrar as posições de início de cada mês no Chart_X_Position
     unique_months = df_chart_data['Mes_Ano'].unique()
     
     for i, month_label in enumerate(unique_months):
@@ -212,6 +211,8 @@ else:
                 xanchor="center"
             ))
 
+    # Garante que fig_main.layout.annotations seja uma lista antes de concatenar
+    existing_annotations = list(fig_main.layout.annotations) if fig_main.layout.annotations else []
 
     fig_main.update_layout(
         title=f"Evolução de {metrica_principal} por Semana do Mês (MoM)",
@@ -219,7 +220,8 @@ else:
             title="Período (Semana do Mês)",
             tickmode='array',
             tickvals=df_chart_data['Chart_X_Position'].tolist(), # Posições numéricas dos ticks
-            ticktext=['Semana ' + str(s) for s in df_chart_data['Semana_do_Mes_Num'].tolist()], # Rótulos "Semana 1", "Semana 2", etc.
+            # Rótulos "Semana 1", "Semana 2", etc.
+            ticktext=['Semana ' + str(s) for s in df_chart_data['Semana_do_Mes_Num'].tolist()],
             showgrid=True,
             gridcolor='lightgrey',
             automargin=True,
@@ -248,7 +250,7 @@ else:
         hovermode="x unified",
         height=550,
         shapes=month_lines, # Adicionar as linhas verticais
-        annotations=fig_main.layout.annotations + month_annotations # Combinar anotações existentes com as novas
+        annotations=existing_annotations + month_annotations # Combinar anotações existentes com as novas
     )
     st.plotly_chart(fig_main, use_container_width=True)
 
@@ -281,17 +283,21 @@ else:
         meses_e_anos_presentes = df_semana_especifica['Mes_Ano'].unique()
 
         # Preencher dinamicamente as colunas de comparação para a linha de separação
-        temp_col_names = set()
+        # Melhor abordagem para garantir que todas as colunas sejam criadas.
+        # Primeiro, crie um conjunto de todas as colunas que podem aparecer para esta semana.
+        expected_cols_for_week = set()
+        expected_cols_for_week.add(f'Valor ({metrica_principal})')
+
+        # Iterar sobre todos os meses nesta semana específica para encontrar as colunas de comparação
         for i in range(len(meses_e_anos_presentes)):
             current_month_label = meses_e_anos_presentes[i]
-            temp_col_names.add(f'Valor ({metrica_principal})')
-            
             for j in range(i):
                 prev_month_label = meses_e_anos_presentes[j]
-                temp_col_names.add(f'vs. {prev_month_label} (Val Abs)')
-                temp_col_names.add(f'vs. {prev_month_label} (%)')
+                expected_cols_for_week.add(f'vs. {prev_month_label} (Val Abs)')
+                expected_cols_for_week.add(f'vs. {prev_month_label} (%)')
         
-        for col_name in temp_col_names:
+        # Preencher a sep_row com strings vazias para todas as colunas esperadas
+        for col_name in expected_cols_for_week:
             sep_row[col_name] = ''
         
         tabela_dados.append(sep_row)
@@ -332,7 +338,25 @@ else:
         
         colunas_ordenadas = ['Mês e Ano', f'Valor ({metrica_principal})']
         comp_cols = [col for col in list(all_cols_in_tables) if 'vs.' in col]
-        comp_cols.sort(key=lambda x: (int(x.split(' ')[2]), pd.to_datetime(x.split(' ')[1], format='%b').month, 'Val Abs' if 'Val Abs' in x else '%'))
+        
+        # Ordenar colunas de comparação de forma mais robusta, incluindo o ano na ordenação
+        # Ex: "vs. May 2024 (%)" < "vs. Jun 2024 (%)" < "vs. May 2025 (%)"
+        def sort_comp_cols(col_name):
+            parts = col_name.split(' ')
+            if len(parts) >= 3 and parts[0] == 'vs.':
+                try:
+                    month_str = parts[1]
+                    year_str = parts[2]
+                    # Convert month abbreviation to a number for sorting
+                    month_num = pd.to_datetime(month_str, format='%b').month
+                    year_num = int(year_str)
+                    return (year_num, month_num, 'Val Abs' if 'Val Abs' in col_name else '%')
+                except ValueError:
+                    return (9999, 99, col_name) # Fallback for unparseable names
+            return (9999, 99, col_name) # Fallback for non 'vs.' columns or malformed names
+
+        comp_cols.sort(key=sort_comp_cols)
+
         colunas_ordenadas.extend(comp_cols)
         
         df_final_tabela = pd.DataFrame(tabela_dados, columns=colunas_ordenadas)
