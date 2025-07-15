@@ -11,12 +11,12 @@ def carregar_dados():
     try:
         df = pd.read_csv(csv_file_path)
     except FileNotFoundError:
-        st.error(f"Erro: O arquivo '{csv_file_path}' não foi encontrado. Por favor, certifique-se de que ele está na mesma pasta do script.")
+        st.error(f"Erro: O arquivo '{csv_file_path}' não foi encontrado. Por favor, certifique-se de que ele está na mesma pasta do script.") #
         st.stop()
 
-    df["Data"] = pd.to_datetime(df["Data"], format="%d/%m/%Y", dayfirst=True)
-    df = df.set_index("Data")
-    df = df.sort_index()
+    df["Data"] = pd.to_datetime(df["Data"], format="%d/%m/%Y", dayfirst=True) #
+    df = df.set_index("Data") #
+    df = df.sort_index() #
 
     return df
 
@@ -68,7 +68,7 @@ df_comparacao_semana_mes['Label_Mes'] = df_comparacao_semana_mes.index.strftime(
 
 # Agrupar por Ano, Mês, Semana do Mês para obter os totais
 df_grouped_by_week_in_month = df_comparacao_semana_mes.groupby(['Ano', 'Mes', 'Semana_do_Mes_Num', 'Label_Mes']).agg(
-    {col: 'sum' for col in df_original.columns}
+    {col: 'sum' for col in df_original.columns if col != 'Mes_Ano'} # Excluir a coluna auxiliar Mes_Ano se existir
 ).reset_index()
 
 # Ordenar para garantir a consistência
@@ -83,7 +83,6 @@ metrica_principal = st.sidebar.selectbox(
 )
 
 # --- Criar o DataFrame para o Gráfico Principal (apenas "Realizado") ---
-# Este DataFrame conterá apenas o valor 'Realizado' para cada ponto
 df_chart_data = df_grouped_by_week_in_month.copy()
 df_chart_data['Label_Eixo_X'] = df_chart_data['Label_Mes'] + ' S' + df_chart_data['Semana_do_Mes_Num'].astype(str) + ' ' + df_chart_data['Ano'].astype(str)
 
@@ -131,7 +130,7 @@ else:
             x=1
         ),
         hovermode="x unified",
-        height=450 # Um pouco menor para dar espaço à tabela
+        height=450
     )
     st.plotly_chart(fig_main, use_container_width=True)
 
@@ -151,27 +150,23 @@ else:
 
     # Iterar por cada Semana do Mês (S1, S2, etc.)
     for semana_num in semanas_do_mes_unicas:
-        st.subheader(f"Comparativo para Semana {semana_num}")
-        
+        # st.subheader(f"Comparativo para Semana {semana_num}") # Removido subheader duplicado se for mostrar uma tabela única
+
         # Filtrar dados para a semana atual do mês
         df_semana_especifica = df_grouped_by_week_in_month[
             df_grouped_by_week_in_month['Semana_do_Mes_Num'] == semana_num
         ].copy()
 
         if df_semana_especifica.empty:
-            st.info(f"Não há dados para a Semana {semana_num} no período selecionado.")
+            # st.info(f"Não há dados para a Semana {semana_num} no período selecionado.") # Removido info duplicada
             continue
 
         # Ordenar pelo mês (e ano) para garantir a ordem cronológica da comparação
         df_semana_especifica = df_semana_especifica.sort_values(by=['Ano', 'Mes'])
 
-        # Criar colunas para a tabela de comparação
-        colunas_tabela = ['Mês e Ano']
-        valores_semanais = []
-        
-        # Coluna para o valor atual
-        colunas_tabela.append(f'Valor ({metrica_principal})')
-        
+        # Criar uma lista temporária para armazenar as linhas da tabela para esta semana
+        linhas_semana_tabela = []
+
         # Armazenar os valores de referência para cálculo percentual
         referencias_valores = {} 
 
@@ -179,44 +174,94 @@ else:
             mes_ano_label = f"{row['Label_Mes']} {row['Ano']}"
             referencias_valores[mes_ano_label] = row[metrica_principal]
 
-            linha_tabela = {'Mês e Ano': mes_ano_label, f'Valor ({metrica_principal})': row[metrica_principal]}
+            linha_tabela_item = {'Mês e Ano': mes_ano_label, f'Valor ({metrica_principal})': row[metrica_principal]}
             
             # Adicionar comparações percentuais com meses anteriores
             meses_anteriores_para_comparar = []
             for prev_label, prev_val in referencias_valores.items():
-                if prev_label != mes_ano_label: # Não comparar com ele mesmo
+                if prev_label != mes_ano_label:
                     meses_anteriores_para_comparar.append((prev_label, prev_val))
             
             # Ordenar meses anteriores do mais antigo para o mais recente para a exibição
-            meses_anteriores_para_comparar.sort(key=lambda x: (int(x[0].split(' ')[1]), list(pd.to_datetime(str(pd.to_datetime(x[0].split(' ')[0], format='%b').month), format='%m').strftime('%b%Y'))[0]))
+            # A chave de ordenação precisa ser mais robusta para meses e anos
+            meses_anteriores_para_comparar.sort(key=lambda x: (int(x[0].split(' ')[1]), pd.to_datetime(x[0].split(' ')[0], format='%b').month))
 
             for prev_label, prev_val in meses_anteriores_para_comparar:
                 col_name_percent = f'vs. {prev_label} (%)'
-                col_name_abs = f'vs. {prev_label} (Val)'
+                col_name_abs = f'vs. {prev_label} (Val Abs)' # Mudado para Abs para clareza
 
                 if prev_val is not None and prev_val != 0:
                     percent_diff = ((row[metrica_principal] - prev_val) / prev_val) * 100
-                    linha_tabela[col_name_abs] = row[metrica_principal] - prev_val
-                    linha_tabela[col_name_percent] = f"{percent_diff:,.2f}%"
+                    linha_tabela_item[col_name_abs] = row[metrica_principal] - prev_val
+                    linha_tabela_item[col_name_percent] = f"{percent_diff:,.2f}%"
                 else:
-                    linha_tabela[col_name_abs] = np.nan
-                    linha_tabela[col_name_percent] = "N/A" if prev_val == 0 else "" # Trata divisão por zero ou dados ausentes
+                    linha_tabela_item[col_name_abs] = np.nan
+                    linha_tabela_item[col_name_percent] = "N/A" # Trata divisão por zero ou dados ausentes
                 
-                # Adicionar colunas se ainda não existirem
-                if col_name_abs not in colunas_tabela:
-                    colunas_tabela.append(col_name_abs)
-                if col_name_percent not in colunas_tabela:
-                    colunas_tabela.append(col_name_percent)
-            
-            tabela_dados.append(linha_tabela)
+            # Adiciona a linha ao coletor geral de dados da tabela
+            linhas_semana_tabela.append(linha_tabela_item)
+        
+        # Adicionar um cabeçalho para cada semana na tabela combinada
+        tabela_dados.append({'Mês e Ano': f'--- Semana {semana_num} ---', f'Valor ({metrica_principal})': '', 'filler_col_for_sep': ''}) # Linha separadora
+        
+        # Adicionar as linhas de dados da semana específica
+        tabela_dados.extend(linhas_semana_tabela)
 
-    # Criar um DataFrame final para a tabela de cada semana
+    # Criar um DataFrame final para a tabela combinada
     if tabela_dados:
-        # Criar um set de todas as colunas para garantir que todas as tabelas tenham as mesmas colunas
+        # Obter todas as colunas possíveis dinamicamente para garantir que o DataFrame seja construído corretamente
         all_cols_in_tables = set()
         for row_dict in tabela_dados:
             all_cols_in_tables.update(row_dict.keys())
         
-        df_final_tabela = pd.DataFrame(tabela_dados, columns=sorted(list(all_cols_in_tables), key=lambda x: (x.split('(')[0], x))) # Ordena colunas
-        st.dataframe(df_final_tabela.style.format(
-            {col: "{:,.0f}" for col in df_final_tabela.columns if 'Valor' in col and '%'
+        # Remover a coluna auxiliar 'filler_col_for_sep' antes de exibir
+        if 'filler_col_for_sep' in all_cols_in_tables:
+            all_cols_in_tables.remove('filler_col_for_sep')
+
+        # Ordenar as colunas para exibição
+        colunas_ordenadas = ['Mês e Ano', f'Valor ({metrica_principal})']
+        # Adicionar as colunas de comparação de forma ordenada
+        comp_cols = [col for col in list(all_cols_in_tables) if 'vs.' in col]
+        comp_cols.sort(key=lambda x: (x.split('vs. ')[1].split(' ')[1], pd.to_datetime(x.split('vs. ')[1].split(' ')[0], format='%b').month, x))
+        colunas_ordenadas.extend(comp_cols)
+        
+        df_final_tabela = pd.DataFrame(tabela_dados, columns=colunas_ordenadas)
+
+        # Formatação
+        # Cria dicionários de formatação dinamicamente
+        format_dict_values = {col: "{:,.0f}" for col in df_final_tabela.columns if 'Valor' in col and '%' not in col and 'Abs' not in col}
+        format_dict_abs = {col: "{:,.0f}" for col in df_final_tabela.columns if 'Val Abs' in col}
+        format_dict_percent = {col: "{}" for col in df_final_tabela.columns if '%' in col}
+
+        # Combina os dicionários de formatação
+        format_dict_combined = {**format_dict_values, **format_dict_abs, **format_dict_percent}
+
+        # Aplica a formatação, ignorando 'Mês e Ano' e 'filler_col_for_sep'
+        st.dataframe(df_final_tabela.style.format(format_dict_combined, subset=pd.IndexSlice[:, [c for c in colunas_ordenadas if c not in ['Mês e Ano']]]))
+    else:
+        st.info("Não há dados suficientes para gerar a tabela de comparativos para a Semana do Mês no período selecionado.")
+
+
+st.markdown("---")
+
+# --- SEÇÃO DE VISUALIZAÇÃO DE DADOS BRUTOS (OPCIONAL) ---
+st.header("Visualização de Dados Semanais Brutos por Período Selecionado")
+
+min_date_raw_vis = df_original.index.min().date()
+max_date_raw_vis = df_original.index.max().date()
+
+st.sidebar.subheader("Ver Dados Semanais Detalhados")
+data_inicio_vis = st.sidebar.date_input("Data de Início", value=min_date_raw_vis, min_value=min_date_raw_vis, max_value=max_date_raw_vis, key="vis_start")
+data_fim_vis = st.sidebar.date_input("Data de Fim", value=max_date_raw_vis, min_value=min_date_raw_vis, max_value=max_date_raw_vis, key="vis_end")
+
+if data_inicio_vis > data_fim_vis:
+    st.sidebar.error("Erro: A data de início não pode ser posterior à data de fim.")
+    st.stop()
+
+df_visualizacao = df_original.loc[pd.to_datetime(data_inicio_vis):pd.to_datetime(data_fim_vis)].copy()
+
+if df_visualizacao.empty:
+    st.warning("Nenhum dado encontrado para o período selecionado para visualização.")
+else:
+    with st.expander("🔍 Ver Dados Semanais Filtrados"):
+        st.dataframe(df_visualizacao.reset_index())
