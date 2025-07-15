@@ -22,7 +22,7 @@ def carregar_dados():
 
 df_original = carregar_dados()
 
-st.title("📊 Análise de Performance: Comparativo Semana do Mês (MoM)")
+st.title("📊 Análise de Performance: Comparativo Semana do Mês (Histórico)")
 
 # --- Filtros de Período na barra lateral para o gráfico principal ---
 st.sidebar.header("Filtros para o Gráfico Principal")
@@ -41,7 +41,7 @@ data_fim_grafico = st.sidebar.date_input(
     "Data de Fim do Gráfico",
     value=max_date_available,
     min_value=min_date_available,
-    max_value=max_date_available, # CORRIGIDO: Adicionado max_value= aqui
+    max_value=max_date_available,
     key="graph_end_date"
 )
 
@@ -61,150 +61,67 @@ if df_filtrado.empty:
 # --- Preparar dados para comparação de "Semana do Mês" ---
 df_comparacao_semana_mes = df_filtrado.copy()
 
-# Adicionar colunas para Mês, Ano e Semana do Mês
 df_comparacao_semana_mes['Ano'] = df_comparacao_semana_mes.index.year
 df_comparacao_semana_mes['Mes'] = df_comparacao_semana_mes.index.month
 df_comparacao_semana_mes['Semana_do_Mes_Num'] = ((df_comparacao_semana_mes.index.day - 1) // 7) + 1
+df_comparacao_semana_mes['Label_Mes'] = df_comparacao_semana_mes.index.strftime('%b') # Ex: Jun, Jul
 
-# --- Agrupar por Semana do Mês e Mês/Ano para os totais ---
-df_grouped = df_comparacao_semana_mes.groupby(['Ano', 'Mes', 'Semana_do_Mes_Num']).agg(
+# Agrupar por Ano, Mês, Semana do Mês para obter os totais
+df_grouped_by_week_in_month = df_comparacao_semana_mes.groupby(['Ano', 'Mes', 'Semana_do_Mes_Num', 'Label_Mes']).agg(
     {col: 'sum' for col in df_original.columns}
 ).reset_index()
 
-# Ordenar para garantir que o cálculo do mês anterior funcione corretamente
-df_grouped = df_grouped.sort_values(by=['Ano', 'Mes', 'Semana_do_Mes_Num'])
+# Ordenar para garantir a consistência
+df_grouped_by_week_in_month = df_grouped_by_week_in_month.sort_values(by=['Ano', 'Mes', 'Semana_do_Mes_Num'])
 
 # --- Seleção da Métrica Principal ---
-metricas_disponiveis = [col for col in df_grouped.columns if col not in ['Ano', 'Mes', 'Semana_do_Mes_Num']]
+metricas_disponiveis = [col for col in df_grouped_by_week_in_month.columns if col not in ['Ano', 'Mes', 'Semana_do_Mes_Num', 'Label_Mes']]
 metrica_principal = st.sidebar.selectbox(
     "Selecione a Métrica para o Gráfico de Tendência",
     metricas_disponiveis,
     index=0
 )
 
-# --- Calcular a Semana Correspondente do Mês Anterior ---
-df_plot = df_grouped.copy()
+# --- Criar o DataFrame para o Gráfico Principal (apenas "Realizado") ---
+# Este DataFrame conterá apenas o valor 'Realizado' para cada ponto
+df_chart_data = df_grouped_by_week_in_month.copy()
+df_chart_data['Label_Eixo_X'] = df_chart_data['Label_Mes'] + ' S' + df_chart_data['Semana_do_Mes_Num'].astype(str) + ' ' + df_chart_data['Ano'].astype(str)
 
-df_plot['Mes_Anterior_Valor'] = np.nan
-df_plot['MoM_Semana_Pct'] = np.nan
+# --- Gráfico de Linhas (apenas "Realizado") ---
+st.header(f"Evolução de {metrica_principal} (Contagem) por Semana do Mês")
 
-for idx, row in df_plot.iterrows():
-    mes_anterior = row['Mes'] - 1
-    ano_anterior_mo = row['Ano']
-    if mes_anterior == 0:
-        mes_anterior = 12
-        ano_anterior_mo = row['Ano'] - 1
-
-    valor_mes_anterior = df_plot[
-        (df_plot['Ano'] == ano_anterior_mo) &
-        (df_plot['Mes'] == mes_anterior) &
-        (df_plot['Semana_do_Mes_Num'] == row['Semana_do_Mes_Num'])
-    ][metrica_principal]
-
-    if not valor_mes_anterior.empty:
-        df_plot.loc[idx, 'Mes_Anterior_Valor'] = valor_mes_anterior.iloc[0]
-
-# Calcular a porcentagem de diferença
-df_plot['MoM_Semana_Pct'] = ((df_plot[metrica_principal] - df_plot['Mes_Anterior_Valor']) / df_plot['Mes_Anterior_Valor']) * 100
-df_plot['MoM_Semana_Pct'] = df_plot['MoM_Semana_Pct'].replace([np.inf, -np.inf], np.nan).fillna(0)
-
-# Remover linhas onde não há comparação (primeiros meses/semanas)
-df_plot_final = df_plot[
-    (df_plot[metrica_principal].notna()) |
-    (df_plot['Mes_Anterior_Valor'].notna()) |
-    (df_plot['MoM_Semana_Pct'].notna())
-].copy()
-
-
-# --- Criar rótulos para o eixo X do gráfico ---
-df_plot_final['Label_Eixo_X'] = df_plot_final['Mes'].apply(lambda x: pd.to_datetime(str(x), format='%m').strftime('%b')) + ' S' + df_plot_final['Semana_do_Mes_Num'].astype(str)
-
-# --- Gráfico de Linhas para Comparação Semanal do Mês (MoM) ---
-st.header(f"Evolução de {metrica_principal} (Contagem) - Comparativo Semana do Mês (MoM)")
-
-if df_plot_final.empty:
-    st.warning("Não há dados suficientes para exibir o gráfico com os filtros e comparações selecionados.")
+if df_chart_data.empty:
+    st.warning("Não há dados suficientes para exibir o gráfico com os filtros selecionados.")
 else:
-    fig_semana_mes = go.Figure()
+    fig_main = go.Figure()
 
-    # Linha 'Realizado' (Semana Atual do Mês)
-    fig_semana_mes.add_trace(go.Scatter(
-        x=df_plot_final['Label_Eixo_X'],
-        y=df_plot_final[metrica_principal],
+    fig_main.add_trace(go.Scatter(
+        x=df_chart_data['Label_Eixo_X'],
+        y=df_chart_data[metrica_principal],
         mode='lines+markers',
         name='Realizado (Semana Atual do Mês)',
         line=dict(color='blue', width=2),
         hovertemplate="<b>%{x}</b><br>Realizado: %{y:,.0f}<extra></extra>"
     ))
 
-    # Linha 'Semana Correspondente do Mês Anterior'
-    fig_semana_mes.add_trace(go.Scatter(
-        x=df_plot_final['Label_Eixo_X'],
-        y=df_plot_final['Mes_Anterior_Valor'],
-        mode='lines+markers',
-        name='Semana Correspondente do Mês Anterior',
-        line=dict(color='purple', width=2),
-        hovertemplate="<b>%{x}</b><br>Mês Anterior: %{y:,.0f}<extra></extra>"
-    ))
-
-    # Linha 'MoM_Semana_Pct' (Diferença Percentual)
-    fig_semana_mes.add_trace(go.Scatter(
-        x=df_plot_final['Label_Eixo_X'],
-        y=df_plot_final['MoM_Semana_Pct'],
-        mode='lines+markers',
-        name='MoM (%) (Semana do Mês)',
-        line=dict(color='orange', width=2, dash='dash'),
-        yaxis='y2',
-        hovertemplate="<b>%{x}</b><br>MoM: %{y:.2f}%<extra></extra>"
-    ))
-
-    # Adicionar rótulos de porcentagem e valores
-    for i, row in df_plot_final.iterrows():
-        if pd.notna(row['MoM_Semana_Pct']) and row['MoM_Semana_Pct'] != 0:
-            fig_semana_mes.add_annotation(
-                x=row['Label_Eixo_X'],
-                y=row['MoM_Semana_Pct'],
-                text=f"{row['MoM_Semana_Pct']:.2f}%",
-                showarrow=False,
-                xshift=0,
-                yshift=10 if row['MoM_Semana_Pct'] >= 0 else -10,
-                font=dict(color='orange', size=10),
-                yref='y2'
-            )
+    # Adicionar rótulos de valor para Realizado
+    for i, row in df_chart_data.iterrows():
         if pd.notna(row[metrica_principal]):
-            fig_semana_mes.add_annotation(
+            fig_main.add_annotation(
                 x=row['Label_Eixo_X'],
                 y=row[metrica_principal],
                 text=f"{row[metrica_principal]:,.0f}",
                 showarrow=False,
                 yshift=10,
-                font=dict(color='blue', size=10),
-                yref='y'
-            )
-        if pd.notna(row['Mes_Anterior_Valor']):
-            fig_semana_mes.add_annotation(
-                x=row['Label_Eixo_X'],
-                y=row['Mes_Anterior_Valor'],
-                text=f"{row['Mes_Anterior_Valor']:.0f}",
-                showarrow=False,
-                yshift=-10,
-                font=dict(color='purple', size=10),
-                yref='y'
+                font=dict(color='blue', size=10)
             )
 
-    fig_semana_mes.update_layout(
-        title=f"Evolução de {metrica_principal} com Comparativo Semana do Mês (MoM)",
+    fig_main.update_layout(
+        title=f"Evolução de {metrica_principal} por Semana do Mês",
         xaxis_title="Período (Mês e Semana)",
         yaxis=dict(
             title=f"{metrica_principal} (Contagem)",
             tickformat=",.0f"
-        ),
-        yaxis2=dict(
-            title="MoM (%)",
-            overlaying='y',
-            side='right',
-            tickformat=".2f",
-            showgrid=False
         ),
         legend=dict(
             orientation="h",
@@ -214,30 +131,92 @@ else:
             x=1
         ),
         hovermode="x unified",
-        height=500
+        height=450 # Um pouco menor para dar espaço à tabela
     )
-    st.plotly_chart(fig_semana_mes, use_container_width=True)
+    st.plotly_chart(fig_main, use_container_width=True)
 
 st.markdown("---")
 
-# --- SEÇÃO DE VISUALIZAÇÃO DE DADOS BRUTOS (OPCIONAL) ---
-st.header("Visualização de Dados Semanais Brutos por Período Selecionado")
+# --- Tabela de Comparação Dinâmica "Semana 1 Julho vs Semana 1 Junho vs Semana 1 Maio" ---
+st.header(f"Comparativo Histórico da Mesma Semana do Mês para {metrica_principal}")
 
-min_date_raw_vis = df_original.index.min().date()
-max_date_raw_vis = df_original.index.max().date()
+# Obter todas as semanas do mês únicas no período filtrado
+semanas_do_mes_unicas = sorted(df_grouped_by_week_in_month['Semana_do_Mes_Num'].unique())
 
-st.sidebar.subheader("Ver Dados Semanais Detalhados")
-data_inicio_vis = st.sidebar.date_input("Data de Início", value=min_date_raw_vis, min_value=min_date_raw_vis, max_value=max_date_raw_vis, key="vis_start")
-data_fim_vis = st.sidebar.date_input("Data de Fim", value=max_date_raw_vis, min_value=min_date_raw_vis, max_value=max_date_raw_vis, key="vis_end") # CORRIGIDO AQUI TAMBÉM
-
-if data_inicio_vis > data_fim_vis:
-    st.sidebar.error("Erro: A data de início não pode ser posterior à data de fim.")
-    st.stop()
-
-df_visualizacao = df_original.loc[pd.to_datetime(data_inicio_vis):pd.to_datetime(data_fim_vis)].copy()
-
-if df_visualizacao.empty:
-    st.warning("Nenhum dado encontrado para o período selecionado para visualização.")
+if not semanas_do_mes_unicas:
+    st.info("Não há semanas do mês para comparar no período selecionado.")
 else:
-    with st.expander("🔍 Ver Dados Semanais Filtrados"):
-        st.dataframe(df_visualizacao.reset_index())
+    # Criar uma lista para armazenar os dados da tabela
+    tabela_dados = []
+
+    # Iterar por cada Semana do Mês (S1, S2, etc.)
+    for semana_num in semanas_do_mes_unicas:
+        st.subheader(f"Comparativo para Semana {semana_num}")
+        
+        # Filtrar dados para a semana atual do mês
+        df_semana_especifica = df_grouped_by_week_in_month[
+            df_grouped_by_week_in_month['Semana_do_Mes_Num'] == semana_num
+        ].copy()
+
+        if df_semana_especifica.empty:
+            st.info(f"Não há dados para a Semana {semana_num} no período selecionado.")
+            continue
+
+        # Ordenar pelo mês (e ano) para garantir a ordem cronológica da comparação
+        df_semana_especifica = df_semana_especifica.sort_values(by=['Ano', 'Mes'])
+
+        # Criar colunas para a tabela de comparação
+        colunas_tabela = ['Mês e Ano']
+        valores_semanais = []
+        
+        # Coluna para o valor atual
+        colunas_tabela.append(f'Valor ({metrica_principal})')
+        
+        # Armazenar os valores de referência para cálculo percentual
+        referencias_valores = {} 
+
+        for idx, row in df_semana_especifica.iterrows():
+            mes_ano_label = f"{row['Label_Mes']} {row['Ano']}"
+            referencias_valores[mes_ano_label] = row[metrica_principal]
+
+            linha_tabela = {'Mês e Ano': mes_ano_label, f'Valor ({metrica_principal})': row[metrica_principal]}
+            
+            # Adicionar comparações percentuais com meses anteriores
+            meses_anteriores_para_comparar = []
+            for prev_label, prev_val in referencias_valores.items():
+                if prev_label != mes_ano_label: # Não comparar com ele mesmo
+                    meses_anteriores_para_comparar.append((prev_label, prev_val))
+            
+            # Ordenar meses anteriores do mais antigo para o mais recente para a exibição
+            meses_anteriores_para_comparar.sort(key=lambda x: (int(x[0].split(' ')[1]), list(pd.to_datetime(str(pd.to_datetime(x[0].split(' ')[0], format='%b').month), format='%m').strftime('%b%Y'))[0]))
+
+            for prev_label, prev_val in meses_anteriores_para_comparar:
+                col_name_percent = f'vs. {prev_label} (%)'
+                col_name_abs = f'vs. {prev_label} (Val)'
+
+                if prev_val is not None and prev_val != 0:
+                    percent_diff = ((row[metrica_principal] - prev_val) / prev_val) * 100
+                    linha_tabela[col_name_abs] = row[metrica_principal] - prev_val
+                    linha_tabela[col_name_percent] = f"{percent_diff:,.2f}%"
+                else:
+                    linha_tabela[col_name_abs] = np.nan
+                    linha_tabela[col_name_percent] = "N/A" if prev_val == 0 else "" # Trata divisão por zero ou dados ausentes
+                
+                # Adicionar colunas se ainda não existirem
+                if col_name_abs not in colunas_tabela:
+                    colunas_tabela.append(col_name_abs)
+                if col_name_percent not in colunas_tabela:
+                    colunas_tabela.append(col_name_percent)
+            
+            tabela_dados.append(linha_tabela)
+
+    # Criar um DataFrame final para a tabela de cada semana
+    if tabela_dados:
+        # Criar um set de todas as colunas para garantir que todas as tabelas tenham as mesmas colunas
+        all_cols_in_tables = set()
+        for row_dict in tabela_dados:
+            all_cols_in_tables.update(row_dict.keys())
+        
+        df_final_tabela = pd.DataFrame(tabela_dados, columns=sorted(list(all_cols_in_tables), key=lambda x: (x.split('(')[0], x))) # Ordena colunas
+        st.dataframe(df_final_tabela.style.format(
+            {col: "{:,.0f}" for col in df_final_tabela.columns if 'Valor' in col and '%'
