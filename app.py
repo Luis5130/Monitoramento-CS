@@ -92,17 +92,17 @@ df_grouped_by_week_in_month['MoM (%)'] = ((df_grouped_by_week_in_month[metrica_p
 df_grouped_by_week_in_month['MoM (%)'] = df_grouped_by_week_in_month['MoM (%)'].replace([np.inf, -np.inf], np.nan)
 
 
-# --- Criar o DataFrame para o Gráfico Principal (apenas "Realizado") ---
+# --- Criar o DataFrame para o Gráfico Principal ---
 df_chart_data = df_grouped_by_week_in_month.copy()
 
-# Criar um índice numérico sequencial para o eixo X
-df_chart_data['Chart_X_Index'] = range(len(df_chart_data))
+# Criar um índice numérico sequencial para o eixo X, que será a posição real no gráfico
+df_chart_data['Chart_X_Position'] = range(len(df_chart_data))
 
-# Criar um rótulo completo para o hover
-df_chart_data['Full_Label_X'] = df_chart_data['Mes_Ano'] + ' S' + df_chart_data['Semana_do_Mes_Num'].astype(str)
+# Criar um rótulo completo para o hover (Mês e Ano S Semana X)
+df_chart_data['Full_Label_X_Hover'] = df_chart_data['Mes_Ano'] + ' S' + df_chart_data['Semana_do_Mes_Num'].astype(str)
 
 
-# --- Gráfico de Linhas (apenas "Realizado" + "Mês Anterior" + "MoM") ---
+# --- Gráfico de Linhas ---
 st.header(f"Evolução de {metrica_principal} (Contagem) por Semana do Mês")
 
 if df_chart_data.empty:
@@ -112,45 +112,45 @@ else:
 
     # Linha "Realizado" (Semana Atual do Mês)
     fig_main.add_trace(go.Scatter(
-        x=df_chart_data['Chart_X_Index'], # Usar o índice numérico para o eixo X
+        x=df_chart_data['Chart_X_Position'], # Usar a posição numérica para o eixo X
         y=df_chart_data[metrica_principal],
         mode='lines+markers',
         name='Realizado (Semana Atual do Mês)',
         line=dict(color='blue', width=2),
         hovertemplate="<b>%{customdata[0]}</b><br>Realizado: %{y:,.0f}<extra></extra>", # Usar customdata para o hover
-        customdata=df_chart_data[['Full_Label_X']] # Passar Full_Label_X para customdata
+        customdata=df_chart_data[['Full_Label_X_Hover']] # Passar Full_Label_X_Hover para customdata
     ))
 
-    # Linha "Mês Anterior" (se a coluna existir e houver dados)
+    # Linha "Mês Anterior"
     if 'Realizado_Mes_Anterior' in df_chart_data.columns and not df_chart_data['Realizado_Mes_Anterior'].isnull().all():
         fig_main.add_trace(go.Scatter(
-            x=df_chart_data['Chart_X_Index'],
+            x=df_chart_data['Chart_X_Position'],
             y=df_chart_data['Realizado_Mes_Anterior'],
             mode='lines+markers',
             name='Semana Correspondente do Mês Anterior',
             line=dict(color='purple', dash='dash', width=2),
             hovertemplate="<b>%{customdata[0]}</b><br>Mês Anterior: %{y:,.0f}<extra></extra>",
-            customdata=df_chart_data[['Full_Label_X']]
+            customdata=df_chart_data[['Full_Label_X_Hover']]
         ))
 
-    # Linha "MoM (%)" - em um eixo Y secundário para melhor visualização
+    # Linha "MoM (%)"
     if 'MoM (%)' in df_chart_data.columns and not df_chart_data['MoM (%)'].isnull().all():
         fig_main.add_trace(go.Scatter(
-            x=df_chart_data['Chart_X_Index'],
+            x=df_chart_data['Chart_X_Position'],
             y=df_chart_data['MoM (%)'],
             mode='lines+markers',
             name='MoM (%) (Semana do Mês)',
             yaxis='y2', # Atribui ao segundo eixo Y
             line=dict(color='orange', dash='dot', width=2),
             hovertemplate="<b>%{customdata[0]}</b><br>MoM: %{y:,.2f}%<extra></extra>",
-            customdata=df_chart_data[['Full_Label_X']]
+            customdata=df_chart_data[['Full_Label_X_Hover']]
         ))
 
-    # Adicionar rótulos de valor para Realizado e Mês Anterior (ajustar para Chart_X_Index)
+    # Adicionar rótulos de valor para Realizado e Mês Anterior
     for i, row in df_chart_data.iterrows():
         if pd.notna(row[metrica_principal]):
             fig_main.add_annotation(
-                x=row['Chart_X_Index'],
+                x=row['Chart_X_Position'],
                 y=row[metrica_principal],
                 text=f"{row[metrica_principal]:,.0f}",
                 showarrow=False,
@@ -159,7 +159,7 @@ else:
             )
         if 'Realizado_Mes_Anterior' in row and pd.notna(row['Realizado_Mes_Anterior']):
             fig_main.add_annotation(
-                x=row['Chart_X_Index'],
+                x=row['Chart_X_Position'],
                 y=row['Realizado_Mes_Anterior'],
                 text=f"{row['Realizado_Mes_Anterior']:,.0f}",
                 showarrow=False,
@@ -168,7 +168,7 @@ else:
             )
         if 'MoM (%)' in row and pd.notna(row['MoM (%)']):
             fig_main.add_annotation(
-                x=row['Chart_X_Index'],
+                x=row['Chart_X_Position'],
                 y=row['MoM (%)'],
                 text=f"{row['MoM (%)']:,.2f}%",
                 showarrow=False,
@@ -177,55 +177,35 @@ else:
             )
 
     # --- Adicionar linhas verticais para separar os meses e rótulos de mês ---
-    month_starts = df_chart_data.drop_duplicates(subset=['Mes_Ano']).index.tolist()
-    month_annotations = []
     month_lines = []
-
-    for i, idx in enumerate(month_starts):
-        # Encontrar o Chart_X_Index correspondente ao início do mês
-        x_position_for_month = df_chart_data.loc[idx, 'Chart_X_Index']
-        month_label = df_chart_data.loc[idx, 'Mes_Ano']
-
-        if i > 0: # Adicionar linha vertical antes do início do novo mês (exceto o primeiro)
-            month_lines.append(dict(
-                type="line",
-                xref="x", yref="paper",
-                x0=x_position_for_month - 0.5, # Ajuste para que a linha fique entre as semanas
-                y0=0, y1=1,
-                line=dict(color="grey", width=1, dash="dash")
-            ))
-            # Adicionar rótulo do mês na posição central do mês anterior
-            # Calcular o meio entre a última semana do mês anterior e a primeira semana do mês atual
-            if i < len(month_starts): # Não para o último mês, se não houver um próximo
-                 prev_month_end_idx = month_starts[i-1]
-                 prev_month_end_x = df_chart_data.loc[prev_month_end_idx:idx-1, 'Chart_X_Index'].iloc[-1] if idx > 0 else 0
-                 
-                 mid_point_x = (x_position_for_month - 0.5 + prev_month_end_x) / 2
-                 if i == 1: # Para o primeiro mês, ajuste para o início
-                     mid_point_x = (df_chart_data['Chart_X_Index'].iloc[0] + x_position_for_month - 0.5) / 2
-                 
-                 month_annotations.append(dict(
-                    xref="x", yref="paper",
-                    x=mid_point_x,
-                    y=1.05,
-                    text=df_chart_data.loc[month_starts[i-1], 'Mes_Ano'], # Rótulo do mês anterior
-                    showarrow=False,
-                    font=dict(size=10, color="grey"),
-                    xanchor="center"
-                ))
+    month_annotations = []
+    
+    # Encontrar as posições de início de cada mês no Chart_X_Position
+    unique_months = df_chart_data['Mes_Ano'].unique()
+    
+    for i, month_label in enumerate(unique_months):
+        month_data = df_chart_data[df_chart_data['Mes_Ano'] == month_label]
         
-        # Para o último mês visível no gráfico, adicione o rótulo ao final
-        if i == len(month_starts) - 1:
-            last_week_x = df_chart_data.loc[df_chart_data['Mes_Ano'] == month_label, 'Chart_X_Index'].iloc[-1]
-            if len(month_starts) > 1: # Se houver mais de um mês, pegue o ponto médio após a última semana
-                 mid_point_x_last = (last_week_x + x_position_for_month + 0.5) / 2 # Ajuste para o final do gráfico
-            else: # Se for apenas um mês, centralize
-                mid_point_x_last = (df_chart_data['Chart_X_Index'].min() + df_chart_data['Chart_X_Index'].max()) / 2
-
+        if not month_data.empty:
+            month_start_x = month_data['Chart_X_Position'].min()
+            month_end_x = month_data['Chart_X_Position'].max()
+            
+            # Adicionar linha vertical no início de cada mês (exceto o primeiro)
+            if i > 0:
+                line_x_position = month_start_x - 0.5 # Colocar a linha no meio entre as semanas
+                month_lines.append(dict(
+                    type="line",
+                    xref="x", yref="paper",
+                    x0=line_x_position, y0=0, x1=line_x_position, y1=1,
+                    line=dict(color="grey", width=1, dash="dash")
+                ))
+            
+            # Adicionar rótulo do mês centralizado acima das semanas daquele mês
+            text_x_position = (month_start_x + month_end_x) / 2
             month_annotations.append(dict(
                 xref="x", yref="paper",
-                x=mid_point_x_last,
-                y=1.05,
+                x=text_x_position,
+                y=1.05, # Posição Y no topo do gráfico
                 text=month_label,
                 showarrow=False,
                 font=dict(size=10, color="grey"),
@@ -236,10 +216,10 @@ else:
     fig_main.update_layout(
         title=f"Evolução de {metrica_principal} por Semana do Mês (MoM)",
         xaxis=dict(
-            title="Semana do Mês",
+            title="Período (Semana do Mês)",
             tickmode='array',
-            tickvals=list(range(len(df_chart_data.index.unique()))), # Usar um índice sequencial simples
-            ticktext=['Semana ' + str(((i % 4) + 1)) for i in range(len(df_chart_data.index.unique()))], # Rótulos fixos Semana 1-4
+            tickvals=df_chart_data['Chart_X_Position'].tolist(), # Posições numéricas dos ticks
+            ticktext=['Semana ' + str(s) for s in df_chart_data['Semana_do_Mes_Num'].tolist()], # Rótulos "Semana 1", "Semana 2", etc.
             showgrid=True,
             gridcolor='lightgrey',
             automargin=True,
@@ -304,9 +284,9 @@ else:
         temp_col_names = set()
         for i in range(len(meses_e_anos_presentes)):
             current_month_label = meses_e_anos_presentes[i]
-            temp_col_names.add(f'Valor ({metrica_principal})') # Garante que a coluna de valor existe
+            temp_col_names.add(f'Valor ({metrica_principal})')
             
-            for j in range(i): # Comparar com todos os meses anteriores
+            for j in range(i):
                 prev_month_label = meses_e_anos_presentes[j]
                 temp_col_names.add(f'vs. {prev_month_label} (Val Abs)')
                 temp_col_names.add(f'vs. {prev_month_label} (%)')
