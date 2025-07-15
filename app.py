@@ -145,12 +145,12 @@ semanas_do_mes_unicas = sorted(df_grouped_by_week_in_month['Semana_do_Mes_Num'].
 if not semanas_do_mes_unicas:
     st.info("Não há semanas do mês para comparar no período selecionado.")
 else:
-    # Criar uma lista para armazenar os dados da tabela
     tabela_dados = []
+    # Coletar os índices das linhas que são separadores para o subset
+    separador_indices = []
+    current_index = 0
 
-    # Iterar por cada Semana do Mês (S1, S2, etc.)
     for semana_num in semanas_do_mes_unicas:
-        # Filtrar dados para a semana atual do mês
         df_semana_especifica = df_grouped_by_week_in_month[
             df_grouped_by_week_in_month['Semana_do_Mes_Num'] == semana_num
         ].copy()
@@ -158,18 +158,14 @@ else:
         if df_semana_especifica.empty:
             continue
 
-        # Ordenar pelo mês (e ano) para garantir a ordem cronológica da comparação
         df_semana_especifica = df_semana_especifica.sort_values(by=['Ano', 'Mes'])
 
-        # Linha separadora para a sub-tabela
-        # Crie um dicionário para a linha de separação, preenchendo as colunas esperadas
+        # Adicionar a linha de separação
         sep_row = {'Mês e Ano': f'--- Semana {semana_num} ---'}
-        # Preencher com strings vazias para evitar problemas de tipo na formatação
-        for col_name in [f'Valor ({metrica_principal})'] + [f'vs. {prev_label} (Val Abs)' for prev_label, _ in df_semana_especifica.apply(lambda r: (f"{r['Label_Mes']} {r['Ano']}", r[metrica_principal]), axis=1).iloc[:-1]] + [f'vs. {prev_label} (%)' for prev_label, _ in df_semana_especifica.apply(lambda r: (f"{r['Label_Mes']} {r['Ano']}", r[metrica_principal]), axis=1).iloc[:-1]]:
-            sep_row[col_name] = ''
         tabela_dados.append(sep_row)
+        separador_indices.append(current_index)
+        current_index += 1
         
-        # Armazenar os valores de referência para cálculo percentual
         referencias_valores = {} 
 
         for idx, row in df_semana_especifica.iterrows():
@@ -178,20 +174,18 @@ else:
 
             linha_tabela_item = {'Mês e Ano': mes_ano_label, f'Valor ({metrica_principal})': row[metrica_principal]}
             
-            # Adicionar comparações percentuais com meses anteriores
             meses_anteriores_para_comparar = []
             for prev_label, prev_val in referencias_valores.items():
                 if prev_label != mes_ano_label:
                     meses_anteriores_para_comparar.append((prev_label, prev_val))
             
-            # Ordenar meses anteriores do mais antigo para o mais recente para a exibição
             meses_anteriores_para_comparar.sort(key=lambda x: (int(x[0].split(' ')[1]), pd.to_datetime(x[0].split(' ')[0], format='%b').month))
 
             for prev_label, prev_val in meses_anteriores_para_comparar:
                 col_name_percent = f'vs. {prev_label} (%)'
                 col_name_abs = f'vs. {prev_label} (Val Abs)'
 
-                if prev_val is not None and prev_val != 0:
+                if pd.notna(prev_val) and prev_val != 0:
                     percent_diff = ((row[metrica_principal] - prev_val) / prev_val) * 100
                     linha_tabela_item[col_name_abs] = row[metrica_principal] - prev_val
                     linha_tabela_item[col_name_percent] = f"{percent_diff:,.2f}%"
@@ -200,16 +194,17 @@ else:
                     linha_tabela_item[col_name_percent] = "N/A"
                 
             tabela_dados.append(linha_tabela_item)
+            current_index += 1
         
-    # Criar um DataFrame final para a tabela combinada
     if tabela_dados:
+        # Primeiro, crie o DataFrame para que todas as colunas existam antes de preencher
         all_cols_in_tables = set()
         for row_dict in tabela_dados:
             all_cols_in_tables.update(row_dict.keys())
         
         colunas_ordenadas = ['Mês e Ano', f'Valor ({metrica_principal})']
         comp_cols = [col for col in list(all_cols_in_tables) if 'vs.' in col]
-        comp_cols.sort(key=lambda x: (x.split('vs. ')[1].split(' ')[1], pd.to_datetime(x.split('vs. ')[1].split(' ')[0], format='%b').month, x))
+        comp_cols.sort(key=lambda x: (int(x.split(' ')[2]), pd.to_datetime(x.split(' ')[1], format='%b').month, x.split('(')[0])) # Mais robusto para ordenar 'vs. Jul 2024 (%)'
         colunas_ordenadas.extend(comp_cols)
         
         df_final_tabela = pd.DataFrame(tabela_dados, columns=colunas_ordenadas)
@@ -221,9 +216,12 @@ else:
 
         format_dict_combined = {**format_dict_values, **format_dict_abs, **format_dict_percent}
 
-        # Aplica a formatação APENAS a células que não são a linha de cabeçalho
+        # Criar o índice booleano para o subset de forma explícita
+        # O subset deve ser um array booleano com o mesmo tamanho do índice do DataFrame
+        rows_to_format_mask = ~df_final_tabela['Mês e Ano'].astype(str).str.startswith('---')
+        
         st.dataframe(df_final_tabela.style.format(format_dict_combined,
-            subset=df_final_tabela['Mês e Ano'].astype(str).str.startswith('---') == False # CORRIGIDO AQUI
+            subset=rows_to_format_mask # Passando a máscara booleana diretamente
         ))
     else:
         st.info("Não há dados suficientes para gerar a tabela de comparativos para a Semana do Mês no período selecionado.")
