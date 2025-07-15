@@ -85,7 +85,7 @@ metricas_disponiveis = [col for col in df_grouped_by_week_in_month.columns if co
 metricas_selecionadas = st.sidebar.multiselect(
     "Status CS - DogHero", # Novo nome do label
     metricas_disponiveis,
-    default=[metricas_disponiveis[-1]] if metricas_disponiveis else [] # Exibe a última métrica por padrão se houver alguma
+    default=[metricas_disponiveis[0]] if metricas_disponiveis else [] # Exibe a primeira métrica por padrão se houver alguma
 )
 
 
@@ -184,8 +184,8 @@ else:
 
 st.markdown("---")
 
-# --- Seção de Tabela de Comparação ---
-st.header(f"Comparativo Histórico da Mesma Semana do Mês para as Métricas")
+# --- Seção de Tabela de Comparação (Consolidada) ---
+st.header(f"Comparativo Histórico da Mesma Semana do Mês")
 
 # Obter todas as semanas do mês únicas no período filtrado
 semanas_do_mes_unicas = sorted(df_grouped_by_week_in_month['Semana_do_Mes_Num'].unique())
@@ -193,115 +193,121 @@ semanas_do_mes_unicas = sorted(df_grouped_by_week_in_month['Semana_do_Mes_Num'].
 if not semanas_do_mes_unicas or not metricas_selecionadas:
     st.info("Não há semanas do mês ou métricas selecionadas para comparar na tabela.")
 else:
-    # A tabela agora será gerada para cada métrica selecionada
-    for metrica_tabela in metricas_selecionadas:
-        st.subheader(f"Métrica: {metrica_tabela}")
-        tabela_dados = []
+    tabela_dados_consolidada = []
 
-        for semana_num in semanas_do_mes_unicas:
-            df_semana_especifica = df_grouped_by_week_in_month[
-                df_grouped_by_week_in_month['Semana_do_Mes_Num'] == semana_num
-            ].copy()
+    for semana_num in semanas_do_mes_unicas:
+        # Adicionar a linha de separação para cada semana
+        sep_row = {'Período / Semana': f'--- Semana {semana_num} ---'}
+        tabela_dados_consolidada.append(sep_row)
 
-            if df_semana_especifica.empty:
-                continue
+        df_semana_especifica = df_grouped_by_week_in_month[
+            df_grouped_by_week_in_month['Semana_do_Mes_Num'] == semana_num
+        ].copy()
 
-            df_semana_especifica = df_semana_especifica.sort_values(by=['Ano', 'Mes'])
+        df_semana_especifica = df_semana_especifica.sort_values(by=['Ano', 'Mes'])
 
-            # Adicionar a linha de separação
-            sep_row = {'Mês e Ano': f'--- Semana {semana_num} ---'}
-            
-            meses_e_anos_presentes = df_semana_especifica['Mes_Ano'].unique()
+        meses_e_anos_presentes = df_semana_especifica['Mes_Ano'].unique()
+        
+        # Dicionário para armazenar os valores das métricas para os meses anteriores na mesma semana
+        valores_por_metrica_e_mes = {metrica: {} for metrica in metricas_selecionadas}
 
-            expected_cols_for_week = set()
-            expected_cols_for_week.add(f'Valor ({metrica_tabela})')
+        for idx, row in df_semana_especifica.iterrows():
+            mes_ano_label = f"{row['Label_Mes']} {row['Ano']}"
+            linha_tabela_item = {'Período / Semana': mes_ano_label}
 
-            # Preencher dinamicamente as colunas de comparação para a linha de separação
-            for i in range(len(meses_e_anos_presentes)):
-                current_month_label = meses_e_anos_presentes[i]
-                for j in range(i):
-                    prev_month_label = meses_e_anos_presentes[j]
-                    expected_cols_for_week.add(f'vs. {prev_month_label} (Val Abs)')
-                    expected_cols_for_week.add(f'vs. {prev_month_label} (%)')
-            
-            # Preencher a sep_row com strings vazias para todas as colunas esperadas
-            for col_name in expected_cols_for_week:
-                sep_row[col_name] = ''
-            
-            tabela_dados.append(sep_row)
-            
-            referencias_valores = {} 
+            for metrica_col in metricas_selecionadas:
+                current_value = row.get(metrica_col)
+                linha_tabela_item[f'{metrica_col} (Valor)'] = current_value
+                valores_por_metrica_e_mes[metrica_col][mes_ano_label] = current_value
 
-            for idx, row in df_semana_especifica.iterrows():
-                mes_ano_label = f"{row['Label_Mes']} {row['Ano']}"
-                referencias_valores[mes_ano_label] = row.get(metrica_tabela) # Usar .get() aqui também
-
-                linha_tabela_item = {'Mês e Ano': mes_ano_label, f'Valor ({metrica_tabela})': row.get(metrica_tabela)}
-                
+                # Calcular comparações para esta métrica
                 meses_anteriores_para_comparar = []
-                for prev_label, prev_val in referencias_valores.items():
+                for prev_label, prev_val in valores_por_metrica_e_mes[metrica_col].items():
                     if prev_label != mes_ano_label:
                         meses_anteriores_para_comparar.append((prev_label, prev_val))
                 
+                # Ordenar para garantir que as comparações sigam a ordem cronológica
                 meses_anteriores_para_comparar.sort(key=lambda x: (int(x[0].split(' ')[1]), pd.to_datetime(x[0].split(' ')[0], format='%b').month))
 
                 for prev_label, prev_val in meses_anteriores_para_comparar:
-                    col_name_percent = f'vs. {prev_label} (%)'
-                    col_name_abs = f'vs. {prev_label} (Val Abs)'
+                    col_name_percent = f'{metrica_col} vs. {prev_label} (%)'
+                    col_name_abs = f'{metrica_col} vs. {prev_label} (Val Abs)'
 
-                    # Certificar-se de que o valor atual e o anterior não são nulos antes de calcular
-                    if pd.notna(row.get(metrica_tabela)) and pd.notna(prev_val) and prev_val != 0:
-                        percent_diff = ((row.get(metrica_tabela) - prev_val) / prev_val) * 100
-                        linha_tabela_item[col_name_abs] = row.get(metrica_tabela) - prev_val
+                    if pd.notna(current_value) and pd.notna(prev_val) and prev_val != 0:
+                        percent_diff = ((current_value - prev_val) / prev_val) * 100
+                        linha_tabela_item[col_name_abs] = current_value - prev_val
                         linha_tabela_item[col_name_percent] = f"{percent_diff:,.2f}%"
                     else:
                         linha_tabela_item[col_name_abs] = np.nan
                         linha_tabela_item[col_name_percent] = "N/A"
-                    
-                tabela_dados.append(linha_tabela_item)
             
-            if tabela_dados:
-                all_cols_in_tables = set()
-                for row_dict in tabela_dados:
-                    all_cols_in_tables.update(row_dict.keys())
-                
-                colunas_ordenadas = ['Mês e Ano', f'Valor ({metrica_tabela})']
-                comp_cols = [col for col in list(all_cols_in_tables) if 'vs.' in col]
-                
-                def sort_comp_cols(col_name):
-                    parts = col_name.split(' ')
-                    if len(parts) >= 3 and parts[0] == 'vs.':
+            tabela_dados_consolidada.append(linha_tabela_item)
+        
+    if tabela_dados_consolidada:
+        # Determinar todas as colunas que aparecerão na tabela final
+        all_cols = set()
+        for row_dict in tabela_dados_consolidada:
+            all_cols.update(row_dict.keys())
+        
+        # Definir a ordem das colunas
+        colunas_ordenadas = ['Período / Semana']
+        
+        # Adicionar as colunas de métricas e suas comparações em ordem lógica
+        for metrica in metricas_selecionadas:
+            colunas_ordenadas.append(f'{metrica} (Valor)')
+            
+            # Coletar e ordenar as colunas de comparação para esta métrica
+            comp_cols_for_metric = [col for col in all_cols if col.startswith(f'{metrica} vs.')]
+            
+            # Função de ordenação para as colunas de comparação: primeiro por ano, depois por mês, e então por tipo (Val Abs vs %)
+            def sort_comp_cols(col_name_full):
+                # Extrair o nome da métrica para remover
+                parts = col_name_full.split(' vs. ')
+                if len(parts) > 1:
+                    comparison_part = parts[1] # Ex: 'May 2025 (%)' ou 'Jun 2025 (Val Abs)'
+                    
+                    # Tentar extrair o mês e o ano da parte da comparação
+                    date_parts = comparison_part.split(' ')
+                    if len(date_parts) >= 2:
                         try:
-                            month_str = parts[1]
-                            year_str = parts[2]
+                            month_str = date_parts[0]
+                            year_str = date_parts[1].split('(')[0] # Remover o parêntese para o ano
                             month_num = pd.to_datetime(month_str, format='%b').month
                             year_num = int(year_str)
-                            return (year_num, month_num, 'Val Abs' if 'Val Abs' in col_name else '%')
-                        except ValueError:
-                            return (9999, 99, col_name)
-                    return (9999, 99, col_name)
+                            type_indicator = 0 if 'Val Abs' in col_name_full else 1 # 0 para Val Abs, 1 para %
+                            return (year_num, month_num, type_indicator)
+                        except (ValueError, IndexError):
+                            pass # Fallback para o caso de parsing falhar
+                return (9999, 99, 99) # Valores altos para ir para o final
+            
+            comp_cols_for_metric.sort(key=sort_comp_cols)
+            colunas_ordenadas.extend(comp_cols_for_metric)
 
-                comp_cols.sort(key=sort_comp_cols)
+        df_final_tabela = pd.DataFrame(tabela_dados_consolidada, columns=[col for col in colunas_ordenadas if col in all_cols])
 
-                colunas_ordenadas.extend(comp_cols)
-                
-                df_final_tabela = pd.DataFrame(tabela_dados, columns=colunas_ordenadas)
 
-                format_dict_values = {col: "{:,.0f}" for col in df_final_tabela.columns if 'Valor' in col and '%' not in col and 'Abs' not in col}
-                format_dict_abs = {col: "{:,.0f}" for col in df_final_tabela.columns if 'Val Abs' in col}
-                format_dict_percent = {col: "{}" for col in df_final_tabela.columns if '%' in col}
+        # Dicionário de formatação
+        format_dict_combined = {}
+        for col in df_final_tabela.columns:
+            if 'Valor)' in col and 'Val Abs' not in col:
+                format_dict_combined[col] = "{:,.0f}"
+            elif 'Val Abs' in col:
+                format_dict_combined[col] = "{:,.0f}"
+            elif '%' in col:
+                format_dict_combined[col] = "{}" # Formato já vem como string com %
+        
+        # Máscara para aplicar a formatação apenas nas linhas de dados, não nas linhas de separação
+        rows_to_format_mask = ~df_final_tabela['Período / Semana'].astype(str).str.startswith('---')
+        
+        # Colunas que realmente existem no DataFrame e precisam ser formatadas
+        cols_to_format = [col for col in df_final_tabela.columns if col != 'Período / Semana' and col in format_dict_combined]
 
-                format_dict_combined = {**format_dict_values, **format_dict_abs, **format_dict_percent}
+        st.dataframe(df_final_tabela.style.format(format_dict_combined,
+            subset=pd.IndexSlice[rows_to_format_mask, cols_to_format]
+        ))
+    else:
+        st.info("Não há dados suficientes para gerar a tabela de comparativos para a Semana do Mês no período selecionado.")
 
-                rows_to_format_mask = ~df_final_tabela['Mês e Ano'].astype(str).str.startswith('---')
-                
-                cols_to_format = [col for col in df_final_tabela.columns if col != 'Mês e Ano' and col in format_dict_combined]
-
-                st.dataframe(df_final_tabela.style.format(format_dict_combined,
-                    subset=pd.IndexSlice[rows_to_format_mask, cols_to_format]
-                ))
-            else:
-                st.info(f"Não há dados suficientes para gerar a tabela de comparativos para a Semana do Mês para a métrica '{metrica_tabela}' no período selecionado.")
 
 st.markdown("---")
 
