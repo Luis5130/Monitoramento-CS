@@ -11,13 +11,18 @@ def carregar_dados():
     return df
 
 df_original = carregar_dados()
+
 st.title("📊 Análise de Performance: Comparativo Semana do Mês (Histórico)")
 
 # — Filtros de Período —
 min_date = df_original.index.min().date()
 max_date = df_original.index.max().date()
-data_inicio = st.sidebar.date_input("Data de Início do Gráfico", min_value=min_date, max_value=max_date, value=min_date)
-data_fim = st.sidebar.date_input("Data de Fim do Gráfico", min_value=min_date, max_value=max_date, value=max_date)
+
+data_inicio = st.sidebar.date_input(
+    "Data de Início do Gráfico", min_value=min_date, max_value=max_date, value=min_date)
+data_fim = st.sidebar.date_input(
+    "Data de Fim do Gráfico", min_value=min_date, max_value=max_date, value=max_date)
+
 if data_inicio > data_fim:
     st.sidebar.error("Data de início > data de fim.")
     st.stop()
@@ -27,11 +32,12 @@ if df_filtrado.empty:
     st.warning("Nenhum dado no período selecionado.")
     st.stop()
 
-# — Cálculo da semana do mês real —
+# — Função ajustada: semana do mês com máximo 5 —
 def semana_do_mes(dt):
     primeiro = dt.replace(day=1)
     ajuste = primeiro.weekday()  # segunda = 0
-    return ((dt.day + ajuste - 1) // 7) + 1
+    semana = ((dt.day + ajuste - 1) // 7) + 1
+    return min(semana, 5)
 
 df = df_filtrado.copy()
 df['Ano'] = df.index.year
@@ -40,15 +46,18 @@ df['Semana_do_Mes_Num'] = df.index.to_series().apply(semana_do_mes)
 df['Label_Mes'] = df.index.strftime('%b')
 df['Mes_Ano'] = df['Label_Mes'] + ' ' + df['Ano'].astype(str)
 
-df_grouped = df.groupby(['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']) \
+df_grouped = df.groupby(
+    ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']) \
     .agg({col: 'sum' for col in df_original.columns}).reset_index() \
     .sort_values(['Ano','Mes','Semana_do_Mes_Num'])
 
 metricas = [c for c in df_grouped.columns if c not in ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']]
-selecionadas = st.sidebar.multiselect("Status CS – DogHero", metricas, default=[metricas[0]] if metricas else [])
+
+selecionadas = st.sidebar.multiselect("Status CS – DogHero", metricas, default=[metricas[0]] if metricas else [])
 
 # — Gráfico —
 st.header("Evolução das Métricas por Semana do Mês")
+
 df_chart = df_grouped.copy()
 df_chart['Full_Label'] = df_chart['Mes_Ano'] + ' S' + df_chart['Semana_do_Mes_Num'].astype(str)
 
@@ -64,7 +73,8 @@ if not df_chart.empty and selecionadas:
         for ma in meses:
             tmp = df_chart[df_chart['Mes_Ano']==ma]
             if not tmp.empty:
-                cor = cores[ci % len(cores)]; ci += 1
+                cor = cores[ci % len(cores)]
+                ci += 1
                 fig.add_trace(go.Scatter(
                     x=tmp['Semana_do_Mes_Num'], y=tmp[met],
                     mode='lines+markers',
@@ -74,9 +84,11 @@ if not df_chart.empty and selecionadas:
                     hovertemplate="<b>%{customdata} (" + met + ")</b><br>Valor: %{y:,.0f}<extra></extra>"
                 ))
                 for _, row in tmp.iterrows():
-                    ann.append(dict(x=row['Semana_do_Mes_Num'], y=row[met],
-                                    text=f"{row[met]:,.0f}", showarrow=False, yshift=10,
-                                    font=dict(color=cor, size=10)))
+                    ann.append(dict(
+                        x=row['Semana_do_Mes_Num'], y=row[met],
+                        text=f"{row[met]:,.0f}", showarrow=False, yshift=10,
+                        font=dict(color=cor, size=10)
+                    ))
 
     fig.update_layout(
         title="Evolução das Métricas por Semana do Mês",
@@ -96,6 +108,7 @@ st.markdown("---")
 
 # — Tabela comparativa —
 st.header("Comparativo Histórico da Mesma Semana do Mês")
+
 if selecionadas:
     records = []
     semanas = sorted(df_grouped['Semana_do_Mes_Num'].unique())
@@ -126,8 +139,10 @@ st.markdown("---")
 # — Dados brutos —
 st.header("Visualização de Dados Semanais Brutos por Período Selecionado")
 st.sidebar.header("Ver Dados Semanais Detalhados")
+
 data_inicio_vis = st.sidebar.date_input("Data de Início", min_value=min_date, max_value=max_date, value=min_date, key="vis_start")
 data_fim_vis = st.sidebar.date_input("Data de Fim", min_value=min_date, max_value=max_date, value=max_date, key="vis_end")
+
 if data_inicio_vis > data_fim_vis:
     st.sidebar.error("Data início > fim")
 else:
