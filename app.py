@@ -7,9 +7,9 @@ from datetime import date, timedelta
 # --- INÍCIO: SOLUÇÃO PARA O PROBLEMA DO CACHE ---
 # Este bloco garante que o cache seja limpo a cada execução para fins de desenvolvimento/depuração.
 # COMENTE OU REMOVA ESTE BLOCO INTEIRO EM AMBIENTES DE PRODUÇÃO para aproveitar o cache do Streamlit!
-if 'cache_cleared' not in st.session_state:
+if 'cache_cleared_v2' not in st.session_state: # Alterado o nome da chave para forçar um novo cache
     st.cache_data.clear()
-    st.session_state.cache_cleared = True
+    st.session_state.cache_cleared_v2 = True
 # --- FIM: SOLUÇÃO PARA O PROBLEMA DO CACHE ---
 
 @st.cache_data
@@ -18,7 +18,8 @@ def carregar_dados():
     Carrega os dados do arquivo CSV, formata a coluna 'Data' e define como índice.
     @st.cache_data: Armazena o DataFrame em cache para evitar recargas desnecessárias.
     """
-    df = pd.read_csv("dados_semanais.csv")
+    # *** ALTERADO AQUI: LENDO O NOVO NOME DO ARQUIVO ***
+    df = pd.read_csv("dados.csv") # Renomeado de "dados_semanais.csv" para "dados.csv"
     df["Data"] = pd.to_datetime(df["Data"], format="%d/%m/%Y", dayfirst=True)
     df = df.set_index("Data").sort_index()
     return df
@@ -78,8 +79,13 @@ df['Semana_do_Mes_Num'] = df.index.to_series().apply(semana_do_mes)
 df['Label_Mes'] = df.index.strftime('%b') # Ex: Jan, Feb
 df['Mes_Ano'] = df['Label_Mes'] + ' ' + df['Ano'].astype(str) # Ex: Jan 2025
 
+# --- NOVO DEBUGGING: Mostrar o DataFrame 'df' após cálculo das semanas ---
+st.sidebar.subheader("Verificar df com Semanas (DEBUG)")
+with st.sidebar.expander("Mostrar df após cálculos"):
+    st.dataframe(df)
+# --- FIM NOVO DEBUGGING ---
+
 # Agrupa os dados por semana do mês para o GRÁFICO E TABELA
-# O uso de `df_original.columns if col != 'Data'` garante que apenas as colunas de métricas sejam somadas.
 df_grouped_raw = df.groupby(
     ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']) \
     .agg({col: 'sum' for col in df_original.columns if col != 'Data'}).reset_index() \
@@ -109,8 +115,8 @@ df_grouped = pd.merge(full_index_df, df_grouped_raw,
 df_grouped['Full_Label'] = df_grouped['Mes_Ano'] + ' S' + df_grouped['Semana_do_Mes_Num'].astype(str)
 
 
-# --- DEBBUGING IMPORTANTE ---
-st.sidebar.subheader("Verificar Dados Agrupados (DEBUG)")
+# --- DEBBUGING IMPORTANTE: Mostrar o DataFrame agrupado para verificar a agregação ---
+st.sidebar.subheader("Verificar Dados Agrupados (DEBUG Final)")
 with st.sidebar.expander("Mostrar df_grouped"):
     st.dataframe(df_grouped)
 # --- FIM DO DEBUGGING ---
