@@ -32,17 +32,28 @@ if df_filtrado.empty:
     st.warning("Nenhum dado no período selecionado.")
     st.stop()
 
-# — Função ajustada: semana do mês com máximo 5 —
+# — Função ajustada: semana do mês para garantir no máximo 5 semanas LÓGICAS —
 def semana_do_mes(dt):
-    primeiro_dia_mes = dt.replace(day=1)
-    # Ajuste para considerar segunda-feira como o início da semana (weekday() retorna 0 para segunda)
-    ajuste_primeiro_dia = primeiro_dia_mes.weekday()
+    # Encontra o primeiro dia do mês
+    primeiro_dia_do_mes = dt.replace(day=1)
+    # Calcula a diferença de dias entre a data e o primeiro dia do mês
+    # Ajusta para considerar a semana começando na segunda-feira (weekday() = 0 para segunda)
+    # E adiciona 1 para tornar a semana 1-based
+    semana_num = (dt.day + primeiro_dia_do_mes.weekday() - 1) // 7 + 1
 
-    # Calcula a semana do mês baseada no dia do mês e o ajuste do primeiro dia
-    semana = ((dt.day + ajuste_primeiro_dia - 1) // 7) + 1
-
-    # Garante que o máximo seja a Semana 5
-    return min(semana, 5)
+    # Para garantir que meses com "quase" 6 semanas sejam considerados como 5
+    # Se a data for nos últimos 7 dias do mês e a semana calculada for 6, forçamos para 5
+    # Isso evita uma semana 6 "vazia" ou com poucos dados isolados, agrupando-os na 5
+    if semana_num > 5:
+        # Verifica se o mês seguinte não é muito "cedo" no mês,
+        # indicando que esta é realmente uma "sexta" semana que deveria ser 5
+        # Ex: 30/06, calculada como semana 6, mas ainda é fim de junho
+        proximo_mes = dt.replace(day=28) + pd.Timedelta(days=7) # Pega um dia no proximo mes para verificar
+        if proximo_mes.month == dt.month: # Se o "proximo mes" ainda for o mesmo, estamos em uma 6a semana valida
+             return semana_num # Retorna a semana 6 se for uma semana cheia
+        else: # Se o "proximo mes" for realmente o proximo mes, significa que esta semana 6 eh o final da semana 5
+             return 5 # Força para semana 5
+    return semana_num
 
 df = df_filtrado.copy()
 df['Ano'] = df.index.year
