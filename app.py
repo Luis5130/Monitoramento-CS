@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
-import calendar
 
 @st.cache_data
 def carregar_dados():
@@ -11,22 +10,18 @@ def carregar_dados():
     df = df.set_index("Data").sort_index()
     return df
 
-def semana_do_mes(dt):
-    cal = calendar.monthcalendar(dt.year, dt.month)
-    for i, semana in enumerate(cal, 1):
-        if dt.day in semana:
-            return i
-    return 0
-
 df_original = carregar_dados()
 
 st.title("📊 Análise de Performance: Comparativo Semana do Mês (Histórico)")
 
+# — Filtros de Período —
 min_date = df_original.index.min().date()
 max_date = df_original.index.max().date()
 
-data_inicio = st.sidebar.date_input("Data de Início do Gráfico", min_value=min_date, max_value=max_date, value=min_date)
-data_fim = st.sidebar.date_input("Data de Fim do Gráfico", min_value=min_date, max_value=max_date, value=max_date)
+data_inicio = st.sidebar.date_input(
+    "Data de Início do Gráfico", min_value=min_date, max_value=max_date, value=min_date)
+data_fim = st.sidebar.date_input(
+    "Data de Fim do Gráfico", min_value=min_date, max_value=max_date, value=max_date)
 
 if data_inicio > data_fim:
     st.sidebar.error("Data de início > data de fim.")
@@ -36,6 +31,13 @@ df_filtrado = df_original.loc[data_inicio:data_fim].copy()
 if df_filtrado.empty:
     st.warning("Nenhum dado no período selecionado.")
     st.stop()
+
+# — Função ajustada: semana do mês com máximo 5 —
+def semana_do_mes(dt):
+    primeiro = dt.replace(day=1)
+    ajuste = primeiro.weekday()  # segunda = 0
+    semana = ((dt.day + ajuste - 1) // 7) + 1
+    return min(semana, 5)
 
 df = df_filtrado.copy()
 df['Ano'] = df.index.year
@@ -50,6 +52,103 @@ df_grouped = df.groupby(
     .sort_values(['Ano','Mes','Semana_do_Mes_Num'])
 
 metricas = [c for c in df_grouped.columns if c not in ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']]
+
 selecionadas = st.sidebar.multiselect("Status CS – DogHero", metricas, default=[metricas[0]] if metricas else [])
 
-# (resto do seu código permanece igual, com gráfico e tabela)
+# — Gráfico —
+st.header("Evolução das Métricas por Semana do Mês")
+
+df_chart = df_grouped.copy()
+df_chart['Full_Label'] = df_chart['Mes_Ano'] + ' S' + df_chart['Semana_do_Mes_Num'].astype(str)
+
+if not df_chart.empty and selecionadas:
+    fig = go.Figure()
+    meses = sorted(df_chart['Mes_Ano'].unique(),
+                   key=lambda x: (int(x.split(' ')[1]), pd.to_datetime(x.split(' ')[0], format='%b').month))
+    cores = ['blue','red','green','purple','orange','brown','pink','grey','cyan','magenta']
+    ci = 0
+    ann = []
+
+    for met in selecionadas:
+        for ma in meses:
+            tmp = df_chart[df_chart['Mes_Ano']==ma]
+            if not tmp.empty:
+                cor = cores[ci % len(cores)]
+                ci += 1
+                fig.add_trace(go.Scatter(
+                    x=tmp['Semana_do_Mes_Num'], y=tmp[met],
+                    mode='lines+markers',
+                    name=f"{ma} ({met})",
+                    line=dict(color=cor, width=2),
+                    customdata=tmp['Full_Label'],
+                    hovertemplate="<b>%{customdata} (" + met + ")</b><br>Valor: %{y:,.0f}<extra></extra>"
+                ))
+                for _, row in tmp.iterrows():
+                    ann.append(dict(
+                        x=row['Semana_do_Mes_Num'], y=row[met],
+                        text=f"{row[met]:,.0f}", showarrow=False, yshift=10,
+                        font=dict(color=cor, size=10)
+                    ))
+
+    fig.update_layout(
+        title="Evolução das Métricas por Semana do Mês",
+        xaxis=dict(title="Semana do Mês", tickmode='array',
+                   tickvals=list(range(1, df_chart['Semana_do_Mes_Num'].max()+1)),
+                   ticktext=[f"Semana {i}" for i in range(1, df_chart['Semana_do_Mes_Num'].max()+1)],
+                   showgrid=True, gridcolor='lightgrey'),
+        yaxis=dict(title="Contagem", tickformat=",.0f", showgrid=True, gridcolor='lightgrey'),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified", height=550, annotations=ann
+    )
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("Nenhum dado ou métrica selecionada para gráfico.")
+
+st.markdown("---")
+
+# — Tabela comparativa —
+st.header("Comparativo Histórico da Mesma Semana do Mês")
+
+if selecionadas:
+    records = []
+    semanas = sorted(df_grouped['Semana_do_Mes_Num'].unique())
+    for sem in semanas:
+        records.append({'Período / Semana': f"--- Semana {sem} ---"})
+        df_sem = df_grouped[df_grouped['Semana_do_Mes_Num']==sem].sort_values(['Ano','Mes'])
+        vals = {met: {} for met in selecionadas}
+        for _, r in df_sem.iterrows():
+            lab = f"{r['Label_Mes']} {r['Ano']}"
+            rec = {'Período / Semana': lab}
+            for met in selecionadas:
+                rec[f"{met} (Valor)"] = r[met]
+                vals[met][lab] = r[met]
+                for prev_lab, prev_val in vals[met].items():
+                    if prev_lab != lab and prev_val and pd.notna(prev_val):
+                        change = r[met]-prev_val
+                        pct = (change/prev_val)*100
+                        rec[f"{met} vs. {prev_lab} (Val Abs)"] = change
+                        rec[f"{met} vs. {prev_lab} (%)"] = f"{pct:,.2f}%"
+            records.append(rec)
+    df_tab = pd.DataFrame(records)
+    st.dataframe(df_tab)
+else:
+    st.info("Selecione métricas para tabela comparativa.")
+
+st.markdown("---")
+
+# — Dados brutos —
+st.header("Visualização de Dados Semanais Brutos por Período Selecionado")
+st.sidebar.header("Ver Dados Semanais Detalhados")
+
+data_inicio_vis = st.sidebar.date_input("Data de Início", min_value=min_date, max_value=max_date, value=min_date, key="vis_start")
+data_fim_vis = st.sidebar.date_input("Data de Fim", min_value=min_date, max_value=max_date, value=max_date, key="vis_end")
+
+if data_inicio_vis > data_fim_vis:
+    st.sidebar.error("Data início > fim")
+else:
+    df_vis = df_original.loc[data_inicio_vis:data_fim_vis]
+    if df_vis.empty:
+        st.warning("Nenhum dado nessa faixa.")
+    else:
+        with st.expander("🔍 Ver Dados Semanais Filtrados"):
+            st.dataframe(df_vis.reset_index())
