@@ -4,9 +4,13 @@ import plotly.graph_objects as go
 import numpy as np
 from datetime import date, timedelta
 
-# LIMPA O CACHE NA INICIALIZAÇÃO PARA GARANTIR OS DADOS MAIS RECENTES DURANTE O DESENVOLVIMENTO
-# REMOVER OU COMENTAR QUANDO FOR PARA PRODUÇÃO PARA MELHOR PERFORMANCE
-# st.cache_data.clear() # Esta linha limpa o cache. Você pode comentá-la em produção.
+# --- INÍCIO: SOLUÇÃO PARA O PROBLEMA DO CACHE ---
+# Este bloco garante que o cache seja limpo a cada execução para fins de desenvolvimento/depuração.
+# COMENTE OU REMOVA ESTE BLOCO INTEIRO EM AMBIENTES DE PRODUÇÃO para aproveitar o cache do Streamlit!
+if 'cache_cleared' not in st.session_state:
+    st.cache_data.clear()
+    st.session_state.cache_cleared = True
+# --- FIM: SOLUÇÃO PARA O PROBLEMA DO CACHE ---
 
 @st.cache_data
 def carregar_dados():
@@ -97,17 +101,19 @@ for ano in df['Ano'].unique():
             })
 full_index_df = pd.DataFrame(full_index_data)
 
-df_grouped = pd.merge(full_index_df, df_grouped_raw, # Usar df_grouped_raw aqui
+df_grouped = pd.merge(full_index_df, df_grouped_raw,
                       on=['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano'],
                       how='left').fillna(0)
 
 # Adiciona Full_Label ao df_grouped após o merge
 df_grouped['Full_Label'] = df_grouped['Mes_Ano'] + ' S' + df_grouped['Semana_do_Mes_Num'].astype(str)
 
-# Debugging: Mostrar o DataFrame agrupado para verificar a agregação
+
+# --- DEBBUGING IMPORTANTE ---
 st.sidebar.subheader("Verificar Dados Agrupados (DEBUG)")
 with st.sidebar.expander("Mostrar df_grouped"):
     st.dataframe(df_grouped)
+# --- FIM DO DEBUGGING ---
 
 
 # Seleciona as métricas disponíveis para o usuário
