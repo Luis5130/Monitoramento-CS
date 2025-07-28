@@ -32,13 +32,17 @@ if df_filtrado.empty:
     st.warning("Nenhum dado no período selecionado.")
     st.stop()
 
-# — Função ajustada: semana do mês (removido o limite de 5 para teste) —
+# — Função ajustada: semana do mês com máximo 5 —
 def semana_do_mes(dt):
-    primeiro = dt.replace(day=1)
-    ajuste = primeiro.weekday()  # segunda = 0
-    semana = ((dt.day + ajuste - 1) // 7) + 1
-    # return min(semana, 5) # Comentei esta linha para permitir mais de 5 semanas
-    return semana
+    primeiro_dia_mes = dt.replace(day=1)
+    # Ajuste para considerar segunda-feira como o início da semana (weekday() retorna 0 para segunda)
+    ajuste_primeiro_dia = primeiro_dia_mes.weekday()
+
+    # Calcula a semana do mês baseada no dia do mês e o ajuste do primeiro dia
+    semana = ((dt.day + ajuste_primeiro_dia - 1) // 7) + 1
+
+    # Garante que o máximo seja a Semana 5
+    return min(semana, 5)
 
 df = df_filtrado.copy()
 df['Ano'] = df.index.year
