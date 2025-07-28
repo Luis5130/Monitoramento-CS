@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
-from datetime import date, timedelta # Importações necessárias
+from datetime import date, timedelta
 
 @st.cache_data
 def carregar_dados():
@@ -63,6 +63,7 @@ def semana_do_mes(dt):
         return 5
 
 # Aplica a função de semana do mês ao DataFrame filtrado
+# Importante: 'df' agora contém as colunas 'Ano', 'Mes', 'Label_Mes', 'Mes_Ano'
 df = df_filtrado.copy()
 df['Ano'] = df.index.year
 df['Mes'] = df.index.month
@@ -71,23 +72,23 @@ df['Label_Mes'] = df.index.strftime('%b') # Ex: Jan, Feb
 df['Mes_Ano'] = df['Label_Mes'] + ' ' + df['Ano'].astype(str) # Ex: Jan 2025
 
 # DataFrame para o gráfico: usa os dados individuais do df (não agrupados ainda para o plot)
-df_chart_data = df.copy()
+df_chart_data = df.copy() # df_chart_data já tem 'Semana_do_Mes_Num' e outras colunas de tempo
 df_chart_data['Full_Label'] = df_chart_data['Mes_Ano'] + ' S' + df_chart_data['Semana_do_Mes_Num'].astype(str)
 
 # Agrupa os dados para a TABELA COMPARATIVA (sumariza por semana do mês)
 # Isso é importante para a tabela que compara totais por semana
 df_grouped = df.groupby(
     ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']) \
-    .agg({col: 'sum' for col in df_original.columns}).reset_index() \
+    .agg({col: 'sum' for col in df_original.columns if col != 'Data'}).reset_index() \
     .sort_values(['Ano','Mes','Semana_do_Mes_Num'])
 
 # Preenche o df_grouped para garantir que todas as semanas de 1 a 5 apareçam na tabela
 # mesmo se não houver dados para elas em um mês/ano específico.
 full_index_data = []
-# Pega anos e meses únicos do DataFrame filtrado para construir o índice completo
-for ano in df_filtrado['Ano'].unique():
-    # Pega apenas as combinações únicas de Mes e Label_Mes do df_filtrado para evitar duplicações desnecessárias
-    for mes_num, label_mes in df_filtrado[['Mes', 'Label_Mes']].drop_duplicates().values:
+# Pega anos e meses únicos do DataFrame 'df' (que já tem as colunas 'Ano' e 'Mes' calculadas)
+for ano in df['Ano'].unique(): # <--- ALTERADO DE df_filtrado para df
+    # Pega apenas as combinações únicas de Mes e Label_Mes do df para evitar duplicações desnecessárias
+    for mes_num, label_mes in df[['Mes', 'Label_Mes']].drop_duplicates().values: # <--- ALTERADO DE df_filtrado para df
         mes_ano_label = f"{label_mes} {ano}"
         for sem in range(1, 6): # Itera de 1 a 5 semanas fixas
             full_index_data.append({
@@ -106,7 +107,7 @@ df_grouped = pd.merge(full_index_df, df_grouped,
 
 
 # Seleciona as métricas disponíveis para o usuário
-# Exclui as colunas de identificação e tempo
+# Exclui a coluna 'Data' do df_original para as métricas
 metricas = [c for c in df_original.columns if c not in ['Data']]
 selecionadas = st.sidebar.multiselect("Selecione a(s) Métrica(s)", metricas, default=[metricas[0]] if metricas else [])
 
