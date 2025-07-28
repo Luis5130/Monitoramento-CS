@@ -4,6 +4,10 @@ import plotly.graph_objects as go
 import numpy as np
 from datetime import date, timedelta
 
+# LIMPA O CACHE NA INICIALIZAÇÃO PARA GARANTIR OS DADOS MAIS RECENTES DURANTE O DESENVOLVIMENTO
+# REMOVER OU COMENTAR QUANDO FOR PARA PRODUÇÃO PARA MELHOR PERFORMANCE
+# st.cache_data.clear() # Esta linha limpa o cache. Você pode comentá-la em produção.
+
 @st.cache_data
 def carregar_dados():
     """
@@ -71,7 +75,8 @@ df['Label_Mes'] = df.index.strftime('%b') # Ex: Jan, Feb
 df['Mes_Ano'] = df['Label_Mes'] + ' ' + df['Ano'].astype(str) # Ex: Jan 2025
 
 # Agrupa os dados por semana do mês para o GRÁFICO E TABELA
-df_grouped = df.groupby(
+# O uso de `df_original.columns if col != 'Data'` garante que apenas as colunas de métricas sejam somadas.
+df_grouped_raw = df.groupby(
     ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']) \
     .agg({col: 'sum' for col in df_original.columns if col != 'Data'}).reset_index() \
     .sort_values(['Ano','Mes','Semana_do_Mes_Num'])
@@ -92,17 +97,20 @@ for ano in df['Ano'].unique():
             })
 full_index_df = pd.DataFrame(full_index_data)
 
-df_grouped = pd.merge(full_index_df, df_grouped,
+df_grouped = pd.merge(full_index_df, df_grouped_raw, # Usar df_grouped_raw aqui
                       on=['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano'],
                       how='left').fillna(0)
 
-# *** NOVA LINHA ***: Adiciona Full_Label ao df_grouped após o merge
+# Adiciona Full_Label ao df_grouped após o merge
 df_grouped['Full_Label'] = df_grouped['Mes_Ano'] + ' S' + df_grouped['Semana_do_Mes_Num'].astype(str)
+
+# Debugging: Mostrar o DataFrame agrupado para verificar a agregação
+st.sidebar.subheader("Verificar Dados Agrupados (DEBUG)")
+with st.sidebar.expander("Mostrar df_grouped"):
+    st.dataframe(df_grouped)
 
 
 # Seleciona as métricas disponíveis para o usuário
-# As métricas devem ser as colunas numéricas que foram agregadas
-# Usamos df_grouped.columns para garantir que as métricas existam após o agrupamento e merge
 metricas = [c for c in df_grouped.columns if c not in ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano','Full_Label']]
 selecionadas = st.sidebar.multiselect("Selecione a(s) Métrica(s)", metricas, default=[metricas[0]] if metricas else [])
 
@@ -130,7 +138,6 @@ if not df_grouped.empty and selecionadas:
                     mode='lines+markers',
                     name=f"{ma} ({met})",
                     line=dict(color=cor, width=2),
-                    # Agora 'Full_Label' e 'met' devem estar no 'tmp'
                     customdata=tmp[['Full_Label', met]].values,
                     hovertemplate="<b>%{customdata[0]} (" + met + ")</b><br>Valor: %{customdata[1]:,.0f}<extra></extra>"
                 ))
