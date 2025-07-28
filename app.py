@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
+from datetime import date, timedelta
 
 @st.cache_data
 def carregar_dados():
@@ -32,28 +33,32 @@ if df_filtrado.empty:
     st.warning("Nenhum dado no período selecionado.")
     st.stop()
 
-# — Função ajustada: semana do mês para garantir no máximo 5 semanas LÓGICAS —
+# — Função ajustada: semana do mês usando isocalendar e mapeamento para 5 semanas —
 def semana_do_mes(dt):
-    # Encontra o primeiro dia do mês
-    primeiro_dia_do_mes = dt.replace(day=1)
-    # Calcula a diferença de dias entre a data e o primeiro dia do mês
-    # Ajusta para considerar a semana começando na segunda-feira (weekday() = 0 para segunda)
-    # E adiciona 1 para tornar a semana 1-based
-    semana_num = (dt.day + primeiro_dia_do_mes.weekday() - 1) // 7 + 1
+    # Dia da semana do primeiro dia do mês (Monday is 0 and Sunday is 6)
+    primeiro_dia_mes = dt.replace(day=1)
+    # A semana ISO começa na segunda-feira.
+    # Obtenha a semana ISO do ano para a data e para o primeiro dia do mês
+    semana_ano_dt = dt.isocalendar()[1]
+    semana_ano_primeiro_dia_mes = primeiro_dia_mes.isocalendar()[1]
 
-    # Para garantir que meses com "quase" 6 semanas sejam considerados como 5
-    # Se a data for nos últimos 7 dias do mês e a semana calculada for 6, forçamos para 5
-    # Isso evita uma semana 6 "vazia" ou com poucos dados isolados, agrupando-os na 5
-    if semana_num > 5:
-        # Verifica se o mês seguinte não é muito "cedo" no mês,
-        # indicando que esta é realmente uma "sexta" semana que deveria ser 5
-        # Ex: 30/06, calculada como semana 6, mas ainda é fim de junho
-        proximo_mes = dt.replace(day=28) + pd.Timedelta(days=7) # Pega um dia no proximo mes para verificar
-        if proximo_mes.month == dt.month: # Se o "proximo mes" ainda for o mesmo, estamos em uma 6a semana valida
-             return semana_num # Retorna a semana 6 se for uma semana cheia
-        else: # Se o "proximo mes" for realmente o proximo mes, significa que esta semana 6 eh o final da semana 5
-             return 5 # Força para semana 5
-    return semana_num
+    # Calcula a semana do mês
+    # Se a semana do ano do dia é a mesma ou posterior à do primeiro dia do mês
+    if semana_ano_dt >= semana_ano_primeiro_dia_mes:
+        semana_mes = semana_ano_dt - semana_ano_primeiro_dia_mes + 1
+    else:
+        # Se o primeiro dia do mês está em uma semana de ano "anterior" (ex: mês novo começa na semana 53 do ano anterior)
+        # Calcula as semanas restantes do ano anterior e adiciona as semanas do ano atual
+        # Isso é mais complexo e pode ser simplificado assumindo que isocalendar lida com a virada do ano para semanas.
+        # Uma abordagem mais simples para essa situação específica é considerar a semana 1 do mês.
+        semana_mes = semana_ano_dt + (dt.replace(month=12, day=31).isocalendar()[1] - semana_ano_primeiro_dia_mes) + 1
+
+
+    # Garante que o máximo seja a Semana 5.
+    # Se um mês tem, por exemplo, 6 datas de início de semana distintas e a 6ª tem dados,
+    # esses dados serão somados à 5ª semana.
+    return min(semana_mes, 5)
+
 
 df = df_filtrado.copy()
 df['Ano'] = df.index.year
