@@ -3,144 +3,137 @@ import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
 
-# --- Carregar dados do arquivo CSV ---
 @st.cache_data
 def carregar_dados():
-    csv_file_path = "dados_semanais.csv"
-
-    try:
-        df = pd.read_csv(csv_file_path)
-    except FileNotFoundError:
-        st.error(f"Erro: O arquivo '{csv_file_path}' não foi encontrado.")
-        st.stop()
-
+    df = pd.read_csv("dados_semanais.csv")
     df["Data"] = pd.to_datetime(df["Data"], format="%d/%m/%Y", dayfirst=True)
-    df = df.set_index("Data")
-    df = df.sort_index()
-
+    df = df.set_index("Data").sort_index()
     return df
 
 df_original = carregar_dados()
-
 st.title("📊 Análise de Performance: Comparativo Semana do Mês (Histórico)")
 
-# --- Filtros de Período na barra lateral para o gráfico principal ---
-st.sidebar.header("Filtros para o Gráfico Principal")
-
-min_date_available = df_original.index.min().date()
-max_date_available = df_original.index.max().date()
-
-data_inicio_grafico = st.sidebar.date_input(
-    "Data de Início do Gráfico",
-    value=min_date_available,
-    min_value=min_date_available,
-    max_value=max_date_available,
-    key="graph_start_date"
-)
-data_fim_grafico = st.sidebar.date_input(
-    "Data de Fim do Gráfico",
-    value=max_date_available,
-    min_value=min_date_available,
-    max_value=max_date_available,
-    key="graph_end_date"
-)
-
-if data_inicio_grafico > data_fim_grafico:
-    st.sidebar.error("Erro: A data de início não pode ser posterior à data de fim.")
+# — Filtros de Período —
+min_date = df_original.index.min().date()
+max_date = df_original.index.max().date()
+data_inicio = st.sidebar.date_input("Data de Início do Gráfico", min_value=min_date, max_value=max_date, value=min_date)
+data_fim = st.sidebar.date_input("Data de Fim do Gráfico", min_value=min_date, max_value=max_date, value=max_date)
+if data_inicio > data_fim:
+    st.sidebar.error("Data de início > data de fim.")
     st.stop()
 
-# --- Aplicar filtro de data ---
-df_filtrado = df_original.loc[pd.to_datetime(data_inicio_grafico):pd.to_datetime(data_fim_grafico)].copy()
+df_filtrado = df_original.loc[data_inicio:data_fim].copy()
 if df_filtrado.empty:
-    st.warning("Nenhum dado encontrado para o período selecionado.")
+    st.warning("Nenhum dado no período selecionado.")
     st.stop()
 
-# --- Preparar dados para comparação de "Semana do Mês" ---
-df_comparacao_semana_mes = df_filtrado.copy()
+# — Cálculo da semana do mês real —
+def semana_do_mes(dt):
+    primeiro = dt.replace(day=1)
+    ajuste = primeiro.weekday()  # segunda = 0
+    return ((dt.day + ajuste - 1) // 7) + 1
 
-df_comparacao_semana_mes['Ano'] = df_comparacao_semana_mes.index.year
-df_comparacao_semana_mes['Mes'] = df_comparacao_semana_mes.index.month
+df = df_filtrado.copy()
+df['Ano'] = df.index.year
+df['Mes'] = df.index.month
+df['Semana_do_Mes_Num'] = df.index.to_series().apply(semana_do_mes)
+df['Label_Mes'] = df.index.strftime('%b')
+df['Mes_Ano'] = df['Label_Mes'] + ' ' + df['Ano'].astype(str)
 
-# ✅ NOVO CÁLCULO: Semana do mês real
-def semana_do_mes(data):
-    primeiro_dia_mes = data.replace(day=1)
-    ajuste_dia_semana = primeiro_dia_mes.weekday()  # Segunda = 0
-    return ((data.day + ajuste_dia_semana - 1) // 7) + 1
+df_grouped = df.groupby(['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']) \
+    .agg({col: 'sum' for col in df_original.columns}).reset_index() \
+    .sort_values(['Ano','Mes','Semana_do_Mes_Num'])
 
-df_comparacao_semana_mes['Semana_do_Mes_Num'] = df_comparacao_semana_mes.index.to_series().apply(semana_do_mes)
-df_comparacao_semana_mes['Label_Mes'] = df_comparacao_semana_mes.index.strftime('%b')
-df_comparacao_semana_mes['Mes_Ano'] = df_comparacao_semana_mes['Label_Mes'] + ' ' + df_comparacao_semana_mes['Ano'].astype(str)
+metricas = [c for c in df_grouped.columns if c not in ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']]
+selecionadas = st.sidebar.multiselect("Status CS – DogHero", metricas, default=[metricas[0]] if metricas else [])
 
-# Agrupar por Ano, Mês, Semana do Mês
-df_grouped_by_week_in_month = df_comparacao_semana_mes.groupby(
-    ['Ano', 'Mes', 'Semana_do_Mes_Num', 'Label_Mes', 'Mes_Ano']
-).agg({col: 'sum' for col in df_original.columns if col not in ['Data']}).reset_index()
+# — Gráfico —
+st.header("Evolução das Métricas por Semana do Mês")
+df_chart = df_grouped.copy()
+df_chart['Full_Label'] = df_chart['Mes_Ano'] + ' S' + df_chart['Semana_do_Mes_Num'].astype(str)
 
-df_grouped_by_week_in_month = df_grouped_by_week_in_month.sort_values(by=['Ano', 'Mes', 'Semana_do_Mes_Num'])
+if not df_chart.empty and selecionadas:
+    fig = go.Figure()
+    meses = sorted(df_chart['Mes_Ano'].unique(),
+                   key=lambda x: (int(x.split(' ')[1]), pd.to_datetime(x.split(' ')[0], format='%b').month))
+    cores = ['blue','red','green','purple','orange','brown','pink','grey','cyan','magenta']
+    ci = 0
+    ann = []
 
-# --- Seleção das Métricas ---
-metricas_disponiveis = [col for col in df_grouped_by_week_in_month.columns if col not in ['Ano', 'Mes', 'Semana_do_Mes_Num', 'Label_Mes', 'Mes_Ano']]
-metricas_selecionadas = st.sidebar.multiselect("Status CS - DogHero", metricas_disponiveis, default=[metricas_disponiveis[0]])
-
-# --- Construção do gráfico ---
-st.header(f"Evolução das Métricas por Semana do Mês")
-df_chart_data = df_grouped_by_week_in_month.copy()
-df_chart_data['Full_Label_X_Hover'] = df_chart_data['Mes_Ano'] + ' S' + df_chart_data['Semana_do_Mes_Num'].astype(str)
-
-if df_chart_data.empty or not metricas_selecionadas:
-    st.warning("Nenhum dado ou métrica selecionada.")
-else:
-    fig_main = go.Figure()
-    meses_para_plotar = sorted(df_chart_data['Mes_Ano'].unique(),
-                               key=lambda x: (int(x.split(' ')[1]), pd.to_datetime(x.split(' ')[0], format='%b').month))
-
-    cores = ['blue', 'red', 'green', 'purple', 'orange', 'brown', 'pink', 'grey', 'cyan', 'magenta']
-    cor_index = 0
-    all_annotations = []
-
-    for metrica in metricas_selecionadas:
-        for mes_ano in meses_para_plotar:
-            df_mes_metrica = df_chart_data[df_chart_data['Mes_Ano'] == mes_ano]
-            if not df_mes_metrica.empty and metrica in df_mes_metrica.columns:
-                current_color = cores[cor_index % len(cores)]
-                cor_index += 1
-
-                fig_main.add_trace(go.Scatter(
-                    x=df_mes_metrica['Semana_do_Mes_Num'],
-                    y=df_mes_metrica[metrica],
+    for met in selecionadas:
+        for ma in meses:
+            tmp = df_chart[df_chart['Mes_Ano']==ma]
+            if not tmp.empty:
+                cor = cores[ci % len(cores)]; ci += 1
+                fig.add_trace(go.Scatter(
+                    x=tmp['Semana_do_Mes_Num'], y=tmp[met],
                     mode='lines+markers',
-                    name=f'{mes_ano} ({metrica})',
-                    line=dict(color=current_color, width=2),
-                    hovertemplate="<b>%{customdata}" + f" ({metrica})" + "</b><br>Valor: %{y:,.0f}<extra></extra>",
-                    customdata=df_mes_metrica['Full_Label_X_Hover']
+                    name=f"{ma} ({met})",
+                    line=dict(color=cor, width=2),
+                    customdata=tmp['Full_Label'],
+                    hovertemplate="<b>%{customdata} (" + met + ")</b><br>Valor: %{y:,.0f}<extra></extra>"
                 ))
+                for _, row in tmp.iterrows():
+                    ann.append(dict(x=row['Semana_do_Mes_Num'], y=row[met],
+                                    text=f"{row[met]:,.0f}", showarrow=False, yshift=10,
+                                    font=dict(color=cor, size=10)))
 
-                for _, row in df_mes_metrica.iterrows():
-                    valor = row.get(metrica)
-                    if pd.notna(valor):
-                        all_annotations.append(dict(
-                            x=row['Semana_do_Mes_Num'],
-                            y=valor,
-                            text=f"{valor:,.0f}",
-                            showarrow=False,
-                            yshift=10,
-                            font=dict(color=current_color, size=10)
-                        ))
-
-    fig_main.update_layout(
+    fig.update_layout(
         title="Evolução das Métricas por Semana do Mês",
-        xaxis=dict(
-            title="Semana do Mês",
-            tickmode='array',
-            tickvals=list(range(1, df_chart_data['Semana_do_Mes_Num'].max() + 1)),
-            ticktext=[f'Semana {s}' for s in range(1, df_chart_data['Semana_do_Mes_Num'].max() + 1)],
-            showgrid=True,
-            gridcolor='lightgrey'
-        ),
+        xaxis=dict(title="Semana do Mês", tickmode='array',
+                   tickvals=list(range(1, df_chart['Semana_do_Mes_Num'].max()+1)),
+                   ticktext=[f"Semana {i}" for i in range(1, df_chart['Semana_do_Mes_Num'].max()+1)],
+                   showgrid=True, gridcolor='lightgrey'),
         yaxis=dict(title="Contagem", tickformat=",.0f", showgrid=True, gridcolor='lightgrey'),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        hovermode="x unified",
-        height=550,
-        annotations=all_annotations
+        hovermode="x unified", height=550, annotations=ann
     )
-    st.plotly_chart(fig_main, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("Nenhum dado ou métrica selecionada para gráfico.")
+
+st.markdown("---")
+
+# — Tabela comparativa —
+st.header("Comparativo Histórico da Mesma Semana do Mês")
+if selecionadas:
+    records = []
+    semanas = sorted(df_grouped['Semana_do_Mes_Num'].unique())
+    for sem in semanas:
+        records.append({'Período / Semana': f"--- Semana {sem} ---"})
+        df_sem = df_grouped[df_grouped['Semana_do_Mes_Num']==sem].sort_values(['Ano','Mes'])
+        vals = {met: {} for met in selecionadas}
+        for _, r in df_sem.iterrows():
+            lab = f"{r['Label_Mes']} {r['Ano']}"
+            rec = {'Período / Semana': lab}
+            for met in selecionadas:
+                rec[f"{met} (Valor)"] = r[met]
+                vals[met][lab] = r[met]
+                for prev_lab, prev_val in vals[met].items():
+                    if prev_lab != lab and prev_val and pd.notna(prev_val):
+                        change = r[met]-prev_val
+                        pct = (change/prev_val)*100
+                        rec[f"{met} vs. {prev_lab} (Val Abs)"] = change
+                        rec[f"{met} vs. {prev_lab} (%)"] = f"{pct:,.2f}%"
+            records.append(rec)
+    df_tab = pd.DataFrame(records)
+    st.dataframe(df_tab)
+else:
+    st.info("Selecione métricas para tabela comparativa.")
+
+st.markdown("---")
+
+# — Dados brutos —
+st.header("Visualização de Dados Semanais Brutos por Período Selecionado")
+st.sidebar.header("Ver Dados Semanais Detalhados")
+data_inicio_vis = st.sidebar.date_input("Data de Início", min_value=min_date, max_value=max_date, value=min_date, key="vis_start")
+data_fim_vis = st.sidebar.date_input("Data de Fim", min_value=min_date, max_value=max_date, value=max_date, key="vis_end")
+if data_inicio_vis > data_fim_vis:
+    st.sidebar.error("Data início > fim")
+else:
+    df_vis = df_original.loc[data_inicio_vis:data_fim_vis]
+    if df_vis.empty:
+        st.warning("Nenhum dado nessa faixa.")
+    else:
+        with st.expander("🔍 Ver Dados Semanais Filtrados"):
+            st.dataframe(df_vis.reset_index())
