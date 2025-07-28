@@ -33,32 +33,19 @@ if df_filtrado.empty:
     st.warning("Nenhum dado no período selecionado.")
     st.stop()
 
-# — Função ajustada: semana do mês usando isocalendar e mapeamento para 5 semanas —
+# — Função REVISADA: semana do mês por intervalos fixos de dias —
 def semana_do_mes(dt):
-    # Dia da semana do primeiro dia do mês (Monday is 0 and Sunday is 6)
-    primeiro_dia_mes = dt.replace(day=1)
-    # A semana ISO começa na segunda-feira.
-    # Obtenha a semana ISO do ano para a data e para o primeiro dia do mês
-    semana_ano_dt = dt.isocalendar()[1]
-    semana_ano_primeiro_dia_mes = primeiro_dia_mes.isocalendar()[1]
-
-    # Calcula a semana do mês
-    # Se a semana do ano do dia é a mesma ou posterior à do primeiro dia do mês
-    if semana_ano_dt >= semana_ano_primeiro_dia_mes:
-        semana_mes = semana_ano_dt - semana_ano_primeiro_dia_mes + 1
-    else:
-        # Se o primeiro dia do mês está em uma semana de ano "anterior" (ex: mês novo começa na semana 53 do ano anterior)
-        # Calcula as semanas restantes do ano anterior e adiciona as semanas do ano atual
-        # Isso é mais complexo e pode ser simplificado assumindo que isocalendar lida com a virada do ano para semanas.
-        # Uma abordagem mais simples para essa situação específica é considerar a semana 1 do mês.
-        semana_mes = semana_ano_dt + (dt.replace(month=12, day=31).isocalendar()[1] - semana_ano_primeiro_dia_mes) + 1
-
-
-    # Garante que o máximo seja a Semana 5.
-    # Se um mês tem, por exemplo, 6 datas de início de semana distintas e a 6ª tem dados,
-    # esses dados serão somados à 5ª semana.
-    return min(semana_mes, 5)
-
+    dia = dt.day
+    if dia <= 7:
+        return 1
+    elif dia <= 14:
+        return 2
+    elif dia <= 21:
+        return 3
+    elif dia <= 28:
+        return 4
+    else: # Dias 29, 30, 31
+        return 5
 
 df = df_filtrado.copy()
 df['Ano'] = df.index.year
@@ -67,10 +54,39 @@ df['Semana_do_Mes_Num'] = df.index.to_series().apply(semana_do_mes)
 df['Label_Mes'] = df.index.strftime('%b')
 df['Mes_Ano'] = df['Label_Mes'] + ' ' + df['Ano'].astype(str)
 
+# Certificar-se de que todas as semanas do mês de 1 a 5 apareçam no agrupamento
+# mesmo que não haja dados para elas em um mês específico, para garantir a estrutura do gráfico.
+# Para isso, vamos criar um DataFrame completo de semanas e mesclar com os dados agrupados.
+todas_semanas_mes = pd.DataFrame({'Semana_do_Mes_Num': range(1, 6)})
+
+# Gerar todas as combinações de Ano, Mês, Label_Mes, Mes_Ano e Semana_do_Mes_Num
+# para preencher possíveis lacunas (como a Semana 1 que pode estar faltando)
+full_index_data = []
+for ano in df['Ano'].unique():
+    for mes_num, label_mes in df[['Mes', 'Label_Mes']].drop_duplicates().values:
+        mes_ano_label = f"{label_mes} {ano}"
+        for sem in range(1, 6): # De 1 a 5 semanas fixas
+            full_index_data.append({
+                'Ano': ano,
+                'Mes': mes_num,
+                'Semana_do_Mes_Num': sem,
+                'Label_Mes': label_mes,
+                'Mes_Ano': mes_ano_label
+            })
+full_index_df = pd.DataFrame(full_index_data)
+
+
 df_grouped = df.groupby(
     ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']) \
     .agg({col: 'sum' for col in df_original.columns}).reset_index() \
     .sort_values(['Ano','Mes','Semana_do_Mes_Num'])
+
+# Mesclar com o full_index_df para garantir que todas as semanas 1-5 apareçam, mesmo sem dados
+# Usamos 'left' merge para manter todas as combinações de full_index_df
+df_grouped = pd.merge(full_index_df, df_grouped,
+                      on=['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano'],
+                      how='left').fillna(0) # Preenche os valores de métricas com 0 onde não há dados
+
 
 metricas = [c for c in df_grouped.columns if c not in ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']]
 
@@ -92,7 +108,8 @@ if not df_chart.empty and selecionadas:
 
     for met in selecionadas:
         for ma in meses:
-            tmp = df_chart[df_chart['Mes_Ano']==ma]
+            tmp = df_chart[(df_chart['Mes_Ano']==ma) & (df_chart[met] > 0)] # Filtra apenas linhas com valor > 0 para o trace
+            # Se você quiser mostrar as semanas vazias com 0 no gráfico, remova o `& (df_chart[met] > 0)`
             if not tmp.empty:
                 cor = cores[ci % len(cores)]
                 ci += 1
@@ -105,17 +122,19 @@ if not df_chart.empty and selecionadas:
                     hovertemplate="<b>%{customdata} (" + met + ")</b><br>Valor: %{y:,.0f}<extra></extra>"
                 ))
                 for _, row in tmp.iterrows():
-                    ann.append(dict(
-                        x=row['Semana_do_Mes_Num'], y=row[met],
-                        text=f"{row[met]:,.0f}", showarrow=False, yshift=10,
-                        font=dict(color=cor, size=10)
-                    ))
+                    # Adiciona anotações apenas se o valor for maior que 0
+                    if row[met] > 0:
+                        ann.append(dict(
+                            x=row['Semana_do_Mes_Num'], y=row[met],
+                            text=f"{row[met]:,.0f}", showarrow=False, yshift=10,
+                            font=dict(color=cor, size=10)
+                        ))
 
     fig.update_layout(
         title="Evolução das Métricas por Semana do Mês",
         xaxis=dict(title="Semana do Mês", tickmode='array',
-                   tickvals=list(range(1, df_chart['Semana_do_Mes_Num'].max()+1)),
-                   ticktext=[f"Semana {i}" for i in range(1, df_chart['Semana_do_Mes_Num'].max()+1)],
+                   tickvals=list(range(1, 6)), # Garante ticks de 1 a 5
+                   ticktext=[f"Semana {i}" for i in range(1, 6)],
                    showgrid=True, gridcolor='lightgrey'),
         yaxis=dict(title="Contagem", tickformat=",.0f", showgrid=True, gridcolor='lightgrey'),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -145,10 +164,10 @@ if selecionadas:
                 vals[met][lab] = r[met]
                 for prev_lab, prev_val in vals[met].items():
                     if prev_lab != lab and prev_val and pd.notna(prev_val):
-                        change = r[met]-prev_val
-                        pct = (change/prev_val)*100
-                        rec[f"{met} vs. {prev_lab} (Val Abs)"] = change
-                        rec[f"{met} vs. {prev_lab} (%)"] = f"{pct:,.2f}%"
+                        # Evita divisão por zero se prev_val for 0
+                        pct = ( (r[met]-prev_val)/prev_val ) * 100 if prev_val != 0 else np.nan
+                        rec[f"{met} vs. {prev_lab} (Val Abs)"] = r[met]-prev_val
+                        rec[f"{met} vs. {prev_lab} (%)"] = f"{pct:,.2f}%" if pd.notna(pct) else "N/A"
             records.append(rec)
     df_tab = pd.DataFrame(records)
     st.dataframe(df_tab)
@@ -172,4 +191,4 @@ else:
         st.warning("Nenhum dado nessa faixa.")
     else:
         with st.expander("🔍 Ver Dados Semanais Filtrados"):
-            st.dataframe(df_vis.reset_index())
+            st.dataframe(df_vis.reset_index().assign(Semana_do_Mes_Calculada=df_vis.index.to_series().apply(semana_do_mes)))
