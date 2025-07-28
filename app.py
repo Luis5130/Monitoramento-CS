@@ -71,7 +71,6 @@ df['Label_Mes'] = df.index.strftime('%b') # Ex: Jan, Feb
 df['Mes_Ano'] = df['Label_Mes'] + ' ' + df['Ano'].astype(str) # Ex: Jan 2025
 
 # Agrupa os dados por semana do mês para o GRÁFICO E TABELA
-# Isso garante um único ponto por semana do mês
 df_grouped = df.groupby(
     ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano']) \
     .agg({col: 'sum' for col in df_original.columns if col != 'Data'}).reset_index() \
@@ -83,7 +82,7 @@ full_index_data = []
 for ano in df['Ano'].unique():
     for mes_num, label_mes in df[['Mes', 'Label_Mes']].drop_duplicates().values:
         mes_ano_label = f"{label_mes} {ano}"
-        for sem in range(1, 6): # Itera de 1 a 5 semanas fixas
+        for sem in range(1, 6):
             full_index_data.append({
                 'Ano': ano,
                 'Mes': mes_num,
@@ -93,22 +92,26 @@ for ano in df['Ano'].unique():
             })
 full_index_df = pd.DataFrame(full_index_data)
 
-# Realiza um left merge para manter todas as combinações de semanas 1-5 e preencher NaNs com 0
 df_grouped = pd.merge(full_index_df, df_grouped,
                       on=['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano'],
                       how='left').fillna(0)
 
+# *** NOVA LINHA ***: Adiciona Full_Label ao df_grouped após o merge
+df_grouped['Full_Label'] = df_grouped['Mes_Ano'] + ' S' + df_grouped['Semana_do_Mes_Num'].astype(str)
+
 
 # Seleciona as métricas disponíveis para o usuário
-metricas = [c for c in df_original.columns if c not in ['Data']]
+# As métricas devem ser as colunas numéricas que foram agregadas
+# Usamos df_grouped.columns para garantir que as métricas existam após o agrupamento e merge
+metricas = [c for c in df_grouped.columns if c not in ['Ano','Mes','Semana_do_Mes_Num','Label_Mes','Mes_Ano','Full_Label']]
 selecionadas = st.sidebar.multiselect("Selecione a(s) Métrica(s)", metricas, default=[metricas[0]] if metricas else [])
 
 # — Seção do Gráfico —
 st.header("Evolução das Métricas por Semana do Mês")
 
-if not df_grouped.empty and selecionadas: # Usar df_grouped para o gráfico
+if not df_grouped.empty and selecionadas:
     fig = go.Figure()
-    meses = sorted(df_grouped['Mes_Ano'].unique(), # Usar df_grouped para meses únicos
+    meses = sorted(df_grouped['Mes_Ano'].unique(),
                    key=lambda x: (int(x.split(' ')[1]), pd.to_datetime(x.split(' ')[0], format='%b').month))
     cores = ['blue','red','green','purple','orange','brown','pink','grey','cyan','magenta']
     ci = 0
@@ -116,29 +119,23 @@ if not df_grouped.empty and selecionadas: # Usar df_grouped para o gráfico
 
     for met in selecionadas:
         for ma in meses:
-            # Filtra os dados AGREGADOS para o mês/ano atual
             tmp = df_grouped[df_grouped['Mes_Ano']==ma].sort_values('Semana_do_Mes_Num')
-
-            # Opcional: Se você quer que as linhas não conectem pontos onde o valor é 0,
-            # filtre apenas onde o valor da métrica é maior que 0.
-            # Se você quer ver as linhas passando pelo 0, remova esta linha.
-            # tmp = tmp[tmp[met] > 0] 
 
             if not tmp.empty:
                 cor = cores[ci % len(cores)]
                 ci += 1
                 fig.add_trace(go.Scatter(
-                    x=tmp['Semana_do_Mes_Num'], # Eixo X: número da semana do mês (já agrupado)
-                    y=tmp[met], # Eixo Y: valor da métrica (já somado/agregado)
+                    x=tmp['Semana_do_Mes_Num'],
+                    y=tmp[met],
                     mode='lines+markers',
                     name=f"{ma} ({met})",
                     line=dict(color=cor, width=2),
+                    # Agora 'Full_Label' e 'met' devem estar no 'tmp'
                     customdata=tmp[['Full_Label', met]].values,
                     hovertemplate="<b>%{customdata[0]} (" + met + ")</b><br>Valor: %{customdata[1]:,.0f}<extra></extra>"
                 ))
-                # Adiciona anotações apenas para pontos com valor > 0, para não poluir
                 for _, row in tmp.iterrows():
-                    if row[met] > 0: # Adiciona anotação apenas se o valor não for zero
+                    if row[met] > 0:
                         ann.append(dict(
                             x=row['Semana_do_Mes_Num'], y=row[met],
                             text=f"{row[met]:,.0f}", showarrow=False, yshift=10,
@@ -154,7 +151,7 @@ if not df_grouped.empty and selecionadas: # Usar df_grouped para o gráfico
             ticktext=[f"Semana {i}" for i in range(1, 6)],
             showgrid=True,
             gridcolor='lightgrey',
-            type='category' # Trata o eixo X como categorias
+            type='category'
         ),
         yaxis=dict(title="Contagem", tickformat=",.0f", showgrid=True, gridcolor='lightgrey'),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
