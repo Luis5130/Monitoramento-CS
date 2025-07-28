@@ -7,7 +7,7 @@ from datetime import date, timedelta
 # --- INÍCIO: SOLUÇÃO PARA O PROBLEMA DO CACHE ---
 # Este bloco garante que o cache seja limpo a cada execução para fins de desenvolvimento/depuração.
 # COMENTE OU REMOVA ESTE BLOCO INTEIRO EM AMBIENTES DE PRODUÇÃO para aproveitar o cache do Streamlit!
-if 'cache_cleared_v2' not in st.session_state: # Alterado o nome da chave para forçar um novo cache
+if 'cache_cleared_v2' not in st.session_state:
     st.cache_data.clear()
     st.session_state.cache_cleared_v2 = True
 # --- FIM: SOLUÇÃO PARA O PROBLEMA DO CACHE ---
@@ -18,8 +18,8 @@ def carregar_dados():
     Carrega os dados do arquivo CSV, formata a coluna 'Data' e define como índice.
     @st.cache_data: Armazena o DataFrame em cache para evitar recargas desnecessárias.
     """
-    # *** ALTERADO AQUI: LENDO O NOVO NOME DO ARQUIVO ***
-    df = pd.read_csv("dados.csv") # Renomeado de "dados_semanais.csv" para "dados.csv"
+    # *** ALTERADO DE VOLTA AQUI: LENDO O NOME ORIGINAL DO ARQUIVO ***
+    df = pd.read_csv("dados_semanais.csv") # Mantendo o nome original do arquivo
     df["Data"] = pd.to_datetime(df["Data"], format="%d/%m/%Y", dayfirst=True)
     df = df.set_index("Data").sort_index()
     return df
